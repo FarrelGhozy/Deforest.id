@@ -1,0 +1,764 @@
+% ============================================================
+%  Deforest.id — Proposal LaTeX
+%  Sistem Monitoring Kerusakan Hutan Berbasis Grid
+%  & Early Warning System Terotomatisasi
+%  Template untuk presentasi proposal hackathon
+% ============================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+\usepackage[bahasa]{babel}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{fontawesome5}
+
+% ── Color Palette ──
+\definecolor{forestgreen}{RGB}{34, 139, 34}
+\definecolor{alertred}{RGB}{220, 50, 47}
+\definecolor{darkearth}{RGB}{61, 43, 31}
+\definecolor{skyblue}{RGB}{70, 130, 180}
+\definecolor{softyellow}{RGB}{255, 193, 7}
+
+% ── Hyperlinks ──
+\hypersetup{
+    colorlinks=true,
+    linkcolor=darkearth,
+    urlcolor=skyblue,
+    citecolor=forestgreen
+}
+
+% ── Header/Footer ──
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{darkearth}{\textbf{Deforest.id}}}
+\fancyhead[R]{\small\textcolor{forestgreen}{\textit{Early Warning System Deforestasi}}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Title Format ──
+\titleformat{\section}{\Large\bfseries\color{forestgreen}}{}{0em}{}[\vspace{-0.5em}\rule{\textwidth}{0.5pt}]
+\titleformat{\subsection}{\large\bfseries\color{darkearth}}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{}{0em}{}
+
+% ── Code Listings ──
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue},
+    commentstyle=\color{forestgreen},
+    stringstyle=\color{red}
+}
+
+% ============================================================
+\begin{document}
+
+% ── Cover Page ──
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    {\Huge\bfseries\color{forestgreen} Deforest.id}\\[0.5cm]
+    {\Large\color{darkearth} Sistem Monitoring Kerusakan Hutan\\Berbasis Grid \& Early Warning System Terotomatisasi}\\[1cm]
+
+    \begin{tikzpicture}
+        \draw[fill=forestgreen!20, draw=forestgreen, thick] (0,0) rectangle (5,5);
+        \draw[fill=alertred!30, draw=alertred, thick] (1.5,1.5) rectangle (3.5,3.5);
+        \node at (2.5,2.5) {\textbf{\Large\color{alertred}!}};
+        \draw[step=0.5, gray!40, very thin] (0,0) grid (5,5);
+        \node[anchor=north] at (2.5,5.2) {\small\textit{Grid Monitoring Area}};
+    \end{tikzpicture}
+    \\[1cm]
+
+    {\large\textbf{Tim [Nama Tim]}}\\[0.3cm]
+    {\large\textit{[Nama-nama Anggota Tim]}}\\[0.5cm]
+
+    \vfill
+    {\small Proposal Hackathon -- \today}\\[0.3cm]
+    {\small\textit{"Dari Pasif Menjadi Proaktif: Mengawal Hutan Indonesia dengan Teknologi"}}
+\end{titlepage}
+
+% ── Table of Contents ──
+\newpage
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Abstrak Eksekutif}
+% ============================================================
+
+Indonesia adalah negara dengan hutan tropis terbesar ketiga di dunia, namun juga memiliki tingkat deforestasi tertinggi secara global. Sistem pemantauan yang ada saat ini bersifat \textbf{pasif dan reaktif}---data citra satelit tersedia, tetapi tidak ada mekanisme peringatan dini yang otomatis dan langsung menjangkau petugas di lapangan.
+
+\textbf{Deforest.id} hadir sebagai solusi: sebuah \textbf{Early Warning System (EWS)} yang mengubah pemantauan hutan dari pasif menjadi proaktif. Sistem ini secara otomatis menarik citra satelit dari \textbf{Google Earth Engine}, mendeteksi kerusakan lahan menggunakan \textbf{YOLOv8} pada grid-grid koordinat terstandarisasi, menampilkan hasil dalam \textbf{dashboard interaktif berbasis peta} (Leaflet.js) dengan kode warna merah $\to$ kuning $\to$ hijau, dan mengirim \textbf{notifikasi WhatsApp otomatis} berisi koordinat persis dan gambar ke petugas lapangan.
+
+Dengan arsitektur \textbf{distributed container} (Docker di atas Proxmox), beban komputasi Machine Learning diisolasi dari backend, memastikan sistem tetap responsif meskipun sedang memproses ribuan grid citra satelit.
+
+% ============================================================
+\section{Latar Belakang \& Problem Statement}
+% ============================================================
+
+\subsection{Fakta Deforestasi di Indonesia}
+
+\begin{itemize}
+    \item Indonesia kehilangan \textbf{1,6 juta hektar} hutan per tahun (Global Forest Watch, 2023)
+    \item 72\% deforestasi disebabkan oleh perluasan lahan kelapa sawit dan pertambangan ilegal
+    \item Kerugian ekonomi akibat deforestasi diperkirakan mencapai \textbf{Rp 87 triliun/tahun}
+    \item Emisi karbon dari deforestasi menyumbang 15\% dari total emisi nasional
+\end{itemize}
+
+\subsection{Masalah Sistem Monitoring Saat Ini}
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Passive Monitoring} --- Data satelit tersedia tetapi tidak ada mekanisme peringatan dini. Staf harus \textit{actively check} platform seperti Global Forest Watch.
+    \item \textbf{Time Lag} --- Dari akuisisi data hingga tindak lanjut di lapangan bisa memakan \textbf{waktu berminggu-minggu}.
+    \item \textbf{Akses Terbatas} --- Dashboard yang ada terlalu kompleks untuk petugas lapangan yang mungkin memiliki keterbatasan akses internet dan perangkat.
+    \item \textbf{Tidak Ada Spesifisitas} --- Data yang tersedia seringkali terlalu umum, tidak memberikan koordinat persis area yang terdampak.
+\end{enumerate}
+
+\subsection{Pertanyaan Kunci}
+
+\begin{quotation}
+\textit{"Bagaimana membangun sistem yang secara otomatis mendeteksi, melokalisasi, dan memberitahukan kerusakan hutan dalam hitungan menit --- bukan minggu --- dengan biaya minimal dan tanpa memerlukan keahlian teknis dari pengguna akhir?"}
+\end{quotation}
+
+% ============================================================
+\section{Solusi \& Unique Selling Proposition}
+% ============================================================
+
+\subsection{Apa Itu Deforest.id?}
+
+Deforest.id adalah platform \textbf{Early Warning System (EWS)} terintegrasi yang mengotomatisasi seluruh pipeline dari akuisisi data satelit hingga notifikasi ke petugas lapangan, menggunakan grid-based detection dan Machine Learning.
+
+\subsection{Unique Selling Proposition (USP)}
+
+\begin{enumerate}[label=\textbf{USP \arabic*:}]
+
+    \item \textbf{Proaktif, Bukan Reaktif} \\
+    Sistem secara otomatis menjadwalkan pull data satelit, menjalankan deteksi ML, dan mengirim notifikasi --- tanpa perlu intervensi manual. Respon bisa turun dari \textbf{minggu ke menit}.
+
+    \item \textbf{Grid-Based Precision} \\
+    Wilayah hutan dibagi ke dalam grid-grid koordinat terstandarisasi (misal: $256m \times 256m$). Setiap grid diproses secara independen, memungkinkan deteksi hingga level \textbf{sub-hektar} dengan koordinat presisi yang bisa langsung digunakan untuk tindak lanjut.
+
+    \item \textbf{Multi-Platform Accessibility} \\
+    \begin{itemize}
+        \item \textbf{Dashboard Web} (Leaflet.js) --- Peta interaktif dengan visualisasi grid warna merah/kuning/hijau
+        \item \textbf{WhatsApp Bot} (Baileys) --- Notifikasi langsung ke smartphone, tanpa perlu aplikasi tambahan
+        \item \textbf{Detail Modal} --- Side-by-side perbandingan citra asli vs annotated dengan bounding box
+    \end{itemize}
+
+    \item \textbf{Distributed \& Scalable Architecture} \\
+    Setiap komponen (Data Fetcher, ML Inference, Backend API, Database, Bot) berjalan di \textbf{container terpisah} dengan resource alokasi independen. ML yang berat tidak akan membebani backend API.
+
+    \item \textbf{Zero Manual Intervention} \\
+    Seluruh pipeline dari \textbf{aku-sisi data $\to$ deteksi $\to$ notifikasi} berjalan otomatis. Cocok untuk daerah dengan SDM terbatas.
+
+\end{enumerate}
+
+% ============================================================
+\section{Arsitektur Sistem}
+% ============================================================
+
+\subsection{High-Level Architecture}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        node distance=1.2cm,
+        block/.style={rectangle, draw, thick, minimum width=2.8cm, minimum height=1.2cm, align=center, rounded corners},
+        arrow/.style={-{Stealth[scale=1.2]}, thick},
+        labelnode/.style={font=\small\itshape}
+    ]
+
+        % ---- Layer: Data Source ----
+        \node[block, fill=blue!20] (gee) {\textbf{GEE}\\Google Earth Engine};
+        \node[below=0.5cm of gee, labelnode] (layer1) {\textit{Layer Data Source}};
+
+        % ---- Layer: Processing ----
+        \node[block, fill=green!20, below=2.5cm of gee] (fetcher) {\textbf{GEE Fetcher}\\Python Container};
+        \node[block, fill=orange!20, right=2.5cm of fetcher] (ml) {\textbf{ML Inference}\\YOLOv8 Container};
+        \node[below=0.5cm of ml, labelnode, xshift=-1.25cm] (layer2) {\textit{Layer Processing}};
+
+        \draw[arrow] (gee) -- node[right] {Citra Satelit} (fetcher);
+        \draw[arrow] (fetcher) -- node[above] {Grid Images} (ml);
+
+        % ---- Layer: Storage ----
+        \node[block, fill=purple!20, below=3cm of fetcher] (db) {\textbf{PostgreSQL}\\+ PostGIS};
+        \node[block, fill=red!20, right=2.5cm of db] (redis) {\textbf{Redis}\\Cache \& Queue};
+        \node[below=0.5cm of redis, labelnode, xshift=-1.25cm] (layer3) {\textit{Layer Storage}};
+
+        \draw[arrow] (fetcher) -- (db);
+        \draw[arrow] (ml) -- (db);
+        \draw[arrow] (fetcher) -- (redis);
+        \draw[arrow] (ml) -- (redis);
+
+        % ---- Layer: API ----
+        \node[block, fill=cyan!20, below=2.5cm of db] (api) {\textbf{Backend API}\\Bun + Elysia};
+        \node[below=0.5cm of api, labelnode] (layer4) {\textit{Layer API}};
+
+        \draw[arrow] (db) -- (api);
+        \draw[arrow] (redis) -- (api);
+
+        % ---- Layer: Presentation ----
+        \node[block, fill=yellow!20, below left=1.5cm and 1.5cm of api] (ui) {\textbf{Web Dashboard}\\React + Leaflet};
+        \node[block, fill=green!30, below right=1.5cm and 1.5cm of api] (wa) {\textbf{WA Bot}\\Baileys};
+        \node[below=0.5cm of wa, labelnode, xshift=-1.5cm] (layer5) {\textit{Layer Presentation}};
+
+        \draw[arrow] (api) -- (ui);
+        \draw[arrow] (db) -- (wa);
+
+        % ---- Users ----
+        \node[below=1.5cm of ui] (user1) {\includegraphics[width=0.8cm]{example-image}\\[0.2cm]\small Petugas};
+        \node[below=1.5cm of wa] (user2) {\includegraphics[width=0.8cm]{example-image}\\[0.2cm]\small Masyarakat};
+
+        \draw[arrow] (ui) -- (user1);
+        \draw[arrow] (wa) -- (user2);
+
+    \end{tikzpicture}
+    \caption{Arsitektur High-Level Deforest.id dengan 5 Layer}
+    \label{fig:architecture}
+\end{figure}
+
+\subsection{Alur Data End-to-End}
+
+\begin{enumerate}
+    \item \textbf{Akuisisi Data} --- GEE Fetcher (Python) menarik citra Landsat 8/9 atau Sentinel-2 secara periodik (setiap 6 jam, \textit{configurable}).
+    \item \textbf{Grid Generation} --- Area of Interest (AOI) dibagi menjadi grid-grid berukuran tetap ($256m \times 256m$). Setiap grid memiliki ID unik, centroid (lat/lng), dan polygon geometry yang disimpan di PostGIS.
+    \item \textbf{Image Cropping} --- Setiap grid dipotong (\textit{clipped}) dari citra besar dan disimpan sebagai file PNG terpisah.
+    \item \textbf{ML Inference} --- Queue-driven ML Worker (YOLOv8) memproses grid images dalam batch. Output: confidence score, damage category (severe/moderate/mild/none), dan bounding boxes.
+    \item \textbf{Database Write} --- Hasil deteksi disimpan ke tabel \texttt{detection\_logs}. Status grid di-update. Trigger database otomatis membuat alert untuk deteksi dengan confidence $> 70\%$.
+    \item \textbf{Realtime Push} --- Backend API (Bun + Elysia) mengekspos REST endpoint dan WebSocket. Dashboard menerima update real-time.
+    \item \textbf{Notifikasi} --- WA Bot melakukan polling setiap 30 detik ke tabel \texttt{alerts}. Jika ada alert baru yang belum terkirim, bot mengirim pesan WhatsApp berisi koordinat, confidence score, dan gambar annotated.
+\end{enumerate}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        node distance=0.8cm,
+        box/.style={rectangle, draw, thick, minimum width=2cm, minimum height=0.8cm, align=center, font=\small},
+        arr/.style={-{Stealth[scale=0.8]}, thick}
+    ]
+        \node[box, fill=blue!20] (t0) {T+0};
+        \node[box, fill=blue!20, right=1.5cm of t0] (t1) {T+2m};
+        \node[box, fill=orange!20, right=1.5cm of t1] (t2) {T+5m};
+        \node[box, fill=green!20, right=1.5cm of t2] (t3) {T+7m};
+        \node[box, fill=cyan!20, right=1.5cm of t3] (t4) {T+8m};
+        \node[box, fill=red!20, right=1.5cm of t4] (t5) {T+9m};
+
+        \node[below=0.3cm of t0, font=\tiny] {GEE Pull};
+        \node[below=0.3cm of t1, font=\tiny] {Grid Gen};
+        \node[below=0.3cm of t2, font=\tiny] {ML Infer};
+        \node[below=0.3cm of t3, font=\tiny] {DB Write};
+        \node[below=0.3cm of t4, font=\tiny] {Dashboard};
+        \node[below=0.3cm of t5, font=\tiny] {WA Alert};
+
+        \draw[arr] (t0) -- (t1);
+        \draw[arr] (t1) -- (t2);
+        \draw[arr] (t2) -- (t3);
+        \draw[arr] (t3) -- (t4);
+        \draw[arr] (t4) -- (t5);
+    \end{tikzpicture}
+    \caption{Timeline End-to-End Pipeline (target: $<15$ menit)}
+    \label{fig:timeline}
+\end{figure}
+
+% ============================================================
+\section{Tech Stack \& Resource Allocation}
+% ============================================================
+
+\subsection{Pemilihan Teknologi}
+
+\begin{longtable}{p{3cm} p{3.5cm} p{7cm}}
+    \toprule
+    \textbf{Komponen} & \textbf{Teknologi} & \textbf{Alasan} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Komponen} & \textbf{Teknologi} & \textbf{Alasan} \\
+    \midrule
+    \endhead
+    \hline
+    \endfoot
+    \bottomrule
+    \endlastfoot
+
+    Data Source
+    & Google Earth Engine API
+    & Akses gratis ke Landsat/Sentinel-2, cloud masking built-in \\
+
+    ML Framework
+    & YOLOv8 (Ultralytics)
+    & State-of-the-art object detection, ringan, inference cepat \\
+
+    ML Optimization
+    & TensorFlow Lite / ONNX
+    & Deployment CPU-friendly, model size $\sim$5--10MB \\
+
+    Backend Runtime
+    & Bun + Elysia.js
+    & 3$\times$ lebih cepat dari Node.js, native TS, memori rendah \\
+
+    Database
+    & PostgreSQL 16 + PostGIS 3.4
+    & Spatial indexing (R-Tree), query geometry, robust \\
+
+    Cache \& Queue
+    & Redis 7
+    & Pub/Sub untuk WebSocket, antrian ML job, fast cache \\
+
+    Frontend
+    & React 18 + Vite + TypeScript
+    & Build cepat, HMR, ecosystem matang \\
+
+    Map Library
+    & Leaflet.js 1.9
+    & Open-source, tanpa API key, plugin kaya \\
+
+    Visualisasi
+    & D3.js
+    & Fleksibel untuk time-series chart \\
+
+    WA Bot
+    & Baileys (Node.js)
+    & Library WA Web gratis, komunitas aktif \\
+
+    Container
+    & Docker + Compose
+    & Isolasi resource, reproducible deployment \\
+
+    Reverse Proxy
+    & Nginx (Alpine)
+    & Load balancing, SSL termination, static serving \\
+
+\end{longtable}
+
+\subsection{Resource Allocation di Proxmox}
+
+Asumsi spesifikasi server: \textbf{16 vCPU, 32 GB RAM, 500 GB SSD}.
+
+\begin{longtable}{p{3cm} p{1.5cm} p{1.5cm} p{2.5cm} p{4.5cm}}
+    \toprule
+    \textbf{Container} & \textbf{CPU} & \textbf{RAM} & \textbf{Storage} & \textbf{Catatan} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Container} & \textbf{CPU} & \textbf{RAM} & \textbf{Storage} & \textbf{Catatan} \\
+    \midrule
+    \endhead
+    \hline
+    \endfoot
+    \bottomrule
+    \endlastfoot
+
+    GEE Fetcher & 1 & 2 GB & 50 GB & Periodic job \\
+    ML Inference & 4 & 8 GB & 20 GB & \textbf{Bottleneck utama} \\
+    Backend API & 1 & 1 GB & 1 GB & Serving requests \\
+    PostgreSQL + PostGIS & 2 & 4 GB & 100 GB & I/O intensive \\
+    Frontend & 1 & 1 GB & 1 GB & Static files \\
+    WA Bot & 1 & 512 MB & 1 GB & Event-based \\
+    Redis & 1 & 1 GB & 5 GB & Cache + Pub/Sub \\
+    Nginx & 0.5 & 256 MB & 500 MB & Reverse proxy \\
+    \midrule
+    \textbf{Total} & \textbf{11.5} & \textbf{17.8 GB} & \textbf{178.5 GB} & \\
+    \bottomrule
+\end{longtable}
+
+Sisa resource ($\sim$4.5 vCPU, 14 GB RAM) untuk overhead Proxmox, monitoring, dan buffer scaling.
+
+\subsection{Strategi Anti-Bottleneck}
+
+\begin{enumerate}
+    \item \textbf{CPU Pinning} --- Container ML di-pin ke CPU core terpisah (fisik, bukan virtual) agar tidak berebut resource dengan backend API.
+    \item \textbf{ML Batch Processing} --- ML memproses grid dalam batch (100 grid/siklus), tidak perlu real-time.
+    \item \textbf{Redis Queue} --- GEE Fetcher push job ke Redis, ML Worker consume dari queue. Backend tidak terblokir.
+    \item \textbf{Async Architecture} --- Backend API tidak menunggu hasil ML. ML menulis langsung ke DB, WebSocket push ke client.
+    \item \textbf{Connection Pooling} --- Backend menggunakan koneksi pool ke PostgreSQL, bukan koneksi per request.
+\end{enumerate}
+
+% ============================================================
+\section{Database Schema}
+% ============================================================
+
+\subsection{Entity Relationship Diagram}
+
+Berikut adalah struktur tabel utama dalam sistem Deforest.id:
+
+\begin{itemize}
+    \item \textbf{grid\_cells} --- Menyimpan grid koordinat spasial dengan geometry polygon dan centroid. Setiap grid memiliki \texttt{status} (healthy/mild/moderate/severe/unknown) yang di-update otomatis oleh trigger saat ada deteksi baru.
+    \item \textbf{satellite\_imagery} --- Metadata setiap citra satelit yang ditarik dari GEE: source, scene ID, cloud cover, bounds geometry.
+    \item \textbf{detection\_logs} --- Hasil deteksi ML per grid: confidence score, damage category, bounding boxes (JSONB), path ke annotated image.
+    \item \textbf{alerts} --- Peringatan yang di-generate otomatis oleh trigger database saat deteksi dengan confidence $\ge 0.7$.
+    \item \textbf{notification\_logs} --- Audit trail pengiriman notifikasi (channel, recipient, status, retry count).
+    \item \textbf{config} --- Key-value store untuk konfigurasi dinamis (threshold, interval, recipient list) tanpa perlu rebuild container.
+\end{itemize}
+
+\subsection{DDL Highlights}
+
+Berikut adalah potongan DDL untuk tabel inti:
+
+\begin{lstlisting}[language=SQL, caption={DDL Tabel grid\_cells dan detection\_logs}]
+-- ENUM types
+CREATE TYPE grid_status AS ENUM
+    ('healthy', 'mild', 'moderate', 'severe', 'unknown');
+CREATE TYPE damage_category AS ENUM
+    ('severe', 'moderate', 'mild', 'none');
+
+-- Core spatial table
+CREATE TABLE grid_cells (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    grid_code  VARCHAR(32) UNIQUE NOT NULL,
+    geometry   GEOMETRY(POLYGON, 4326) NOT NULL,
+    centroid   GEOGRAPHY(POINT, 4326) NOT NULL,
+    area_ha    NUMERIC(10, 4),
+    status     grid_status DEFAULT 'unknown',
+    metadata   JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Spatial index for fast bounding-box queries
+CREATE INDEX idx_grid_geometry_gist
+    ON grid_cells USING GIST (geometry);
+
+-- Detection results
+CREATE TABLE detection_logs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    grid_id         UUID NOT NULL REFERENCES grid_cells(id),
+    imagery_id      UUID REFERENCES satellite_imagery(id),
+    confidence      NUMERIC(5, 4) NOT NULL,
+    damage_category damage_category NOT NULL DEFAULT 'none',
+    bounding_boxes  JSONB DEFAULT '[]',
+    annotated_path  TEXT,
+    raw_image_path  TEXT,
+    inference_time_ms INTEGER,
+    model_version   VARCHAR(32) DEFAULT 'v1',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Auto-alert trigger
+CREATE OR REPLACE FUNCTION auto_create_alert()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.confidence >= 0.7
+       AND NEW.damage_category IN ('severe', 'moderate')
+    THEN
+        INSERT INTO alerts (detection_id, severity, summary)
+        VALUES (NEW.id,
+            CASE WHEN NEW.damage_category = 'severe'
+                 THEN 'critical' ELSE 'high' END,
+            FORMAT('Deteksi %s pada grid %s (%.1f%%)',
+                NEW.damage_category,
+                (SELECT grid_code FROM grid_cells
+                 WHERE id = NEW.grid_id),
+                NEW.confidence * 100));
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_auto_create_alert
+    AFTER INSERT ON detection_logs
+    FOR EACH ROW
+    WHEN (NEW.confidence >= 0.7)
+    EXECUTE FUNCTION auto_create_alert();
+\end{lstlisting}
+
+\subsection{Query Contoh untuk Dashboard}
+
+\begin{lstlisting}[language=SQL, caption={Query untuk menampilkan grid di peta}]
+-- Grid dalam bounding box (untuk map view)
+SELECT id, grid_code,
+       ST_AsGeoJSON(geometry) AS geojson,
+       status, last_detection_id
+FROM grid_cells
+WHERE ST_Intersects(
+    geometry,
+    ST_MakeEnvelope(114.0, -3.0, 115.0, -2.0, 4326)
+);
+
+-- Statistik untuk sidebar dashboard
+SELECT
+    status,
+    COUNT(*) AS grid_count,
+    SUM(area_ha) AS total_area_ha,
+    ROUND(SUM(area_ha) * 100.0 /
+        SUM(SUM(area_ha)) OVER(), 2) AS percentage
+FROM grid_cells
+WHERE status != 'unknown'
+GROUP BY status;
+
+-- Alert yang belum terkirim (polling WA Bot)
+SELECT a.id, a.severity, a.summary,
+       dl.confidence, dl.damage_category,
+       gc.grid_code,
+       ST_X(gc.centroid::geometry) AS lat,
+       ST_Y(gc.centroid::geometry) AS lng,
+       dl.annotated_path
+FROM alerts a
+JOIN detection_logs dl ON a.detection_id = dl.id
+JOIN grid_cells gc ON dl.grid_id = gc.id
+WHERE a.notified = FALSE
+ORDER BY a.created_at ASC LIMIT 10;
+\end{lstlisting}
+
+% ============================================================
+\section{User Interface \& User Experience}
+% ============================================================
+
+\subsection{Dashboard Layout}
+
+\begin{itemize}
+    \item \textbf{Map Area (utama)} --- Leaflet.js map dengan base layer OpenStreetMap. Overlay grid cells dengan warna:
+    \begin{itemize}
+        \item \textcolor{forestgreen}{$\blacksquare$ Hijau} --- Tidak ada kerusakan (confidence $< 0.3$)
+        \item \textcolor{softyellow}{$\blacksquare$ Kuning} --- Kerusakan ringan ($0.3 \le$ confidence $< 0.7$)
+        \item \textcolor{alertred}{$\blacksquare$ Merah} --- Kerusakan parah (confidence $\ge 0.7$)
+        \item \textcolor{gray}{$\blacksquare$ Abu-abu} --- Belum diproses / unknown
+    \end{itemize}
+    \item \textbf{Sidebar Panel} --- Statistik ringkasan, daftar recent alerts, filter kontrol, dan search box.
+    \item \textbf{Detail Modal} --- Muncul saat grid di-click. Menampilkan side-by-side raw vs annotated image, confidence score, bounding box details, timeline chart, dan action buttons.
+\end{itemize}
+
+\subsection{Wireframe (Deskripsi)}
+
+\begin{enumerate}
+    \item \textbf{Default View:} Peta Indonesia dengan grid overlay. Semua grid berwarna hijau/abu-abu. Sidebar menunjukkan "No active alerts. Semua area dalam kondisi aman."
+    \item \textbf{Alert Scenario:} Tiba-tiba beberapa grid di Kalimantan berubah menjadi merah. Sidebar memunculkan alert card baru dengan animasi. WebSocket push notifikasi real-time. WA Bot mengirim pesan otomatis ke nomor terdaftar.
+    \item \textbf{Investigation:} Petugas klik grid merah. Modal detail muncul: perbandingan citra Landsat vs annotated image dengan bounding box di area yang terdeteksi gundul. Confidence: 94.3\%. Timeline chart menunjukkan tren peningkatan deforestasi dalam 2 minggu terakhir.
+    \item \textbf{Action:} Petugas klik "Acknowledge" dan "Laporkan". Status alert berubah. Data otomatis tercatat untuk audit trail.
+\end{enumerate}
+
+\subsection{Format Notifikasi WhatsApp}
+
+\begin{verbatim}
+    ┌─────────────────────────────────────────────┐
+    │ 🚨 *PERINGATAN DINI DEFORESTASI*             │
+    │                                               │
+    │ *Lokasi:*                                     │
+    │ Lat: -3.4567, Lng: 114.9876                   │
+    │ Grid ID: GRID-2024-A1                         │
+    │                                               │
+    │ *Tingkat Kerusakan:* 🔴 SEVERE               │
+    │ *Confidence:* 94.3%                           │
+    │ *Waktu:* 2024-01-15 14:30:22                  │
+    │                                               │
+    │ 📍 https://maps.google.com/?q=-3.4567,114.9876│
+    │ 🌐 https://deforest.id/grid/GRID-2024-A1     │
+    └─────────────────────────────────────────────┘
+    [gambar annotated overlay dilampirkan]
+\end{verbatim}
+
+% ============================================================
+\section{Roadmap Pengembangan}
+% ============================================================
+
+\begin{longtable}{p{2.5cm} p{5cm} p{5cm}}
+    \toprule
+    \textbf{Fase} & \textbf{Aktivitas} & \textbf{Deliverable} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Fase} & \textbf{Aktivitas} & \textbf{Deliverable} \\
+    \midrule
+    \endhead
+    \hline
+    \endfoot
+    \bottomrule
+    \endlastfoot
+
+    \textbf{F0: Setup}
+    (Hari 1--2)
+    & Instalasi Proxmox, Docker, NFS. Setup monorepo, struktur service, CI/CD dasar.
+    & Semua container bisa start. \texttt{docker-compose up -d} running.
+
+    \\
+    \textbf{F1: Data}
+    (Hari 3--4)
+    & GEE auth, fetcher, grid generator, image cropper, Redis queue integration.
+    & Citra satelit sukses ditarik. Grid tersimpan di PostGIS. Queue trigger ke ML.
+
+    \\
+    \textbf{F2: ML}
+    (Hari 5--7)
+    & YOLOv8 setup, preprocessing, inference worker, postprocessing (NMS), annotated image gen, alert trigger.
+    & ML container bisa infer grid. Hasil di DB. Alert auto-created.
+
+    \\
+    \textbf{F3: API}
+    (Hari 5--7)
+    & Bun + Elysia setup, REST endpoints, WebSocket, Redis cache, API docs.
+    & Semua endpoint berfungsi. WebSocket push real-time.
+
+    \\
+    \textbf{F4: Bot}
+    (Hari 7--8)
+    & Baileys setup, QR auth, alert polling, message format, image send, retry logic.
+    & Bot kirim notifikasi $<60$ detik dari deteksi.
+
+    \\
+    \textbf{F5: UI}
+    (Hari 8--10)
+    & React + Vite + Leaflet setup, map overlay, sidebar, detail modal, WS client, timeline chart.
+    & Dashboard aksesibel via browser. Grid warna real-time.
+
+    \\
+    \textbf{F6: Test}
+    (Hari 10--11)
+    & Unit test, integration test, E2E flow test, security audit, load test.
+    & Coverage $>70\%$. Semua flow end-to-end verified.
+
+    \\
+    \textbf{F7: Demo}
+    (Hari 12)
+    & Final deploy, seed demo data, prepare demo script, slide deck, backup VM.
+    & Sistem live siap demo. Slide presentasi siap.
+
+    \\
+\end{longtable}
+
+% ============================================================
+\section{Risk Management}
+% ============================================================
+
+\begin{longtable}{p{2.5cm} p{2.5cm} p{2cm} p{5cm}}
+    \toprule
+    \textbf{Risiko} & \textbf{Dampak} & \textbf{Prob.} & \textbf{Mitigasi} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Risiko} & \textbf{Dampak} & \textbf{Prob.} & \textbf{Mitigasi} \\
+    \midrule
+    \endhead
+    \hline
+    \endfoot
+    \bottomrule
+    \endlastfoot
+
+    GEE API rate limit & Data gagal ditarik & Rendah & Cache data, interval pull, fallback dummy data \\
+
+    ML akurasi rendah & False positive/negatif & Sedang & Fine-tune dataset lokal, ensemble model, human-in-the-loop \\
+
+    WA nomor diblokir & Notifikasi gagal & Rendah & Multi-session, cadangan SMS/email, retry queue \\
+
+    Container crash & Service down & Rendah & restart: always, healthcheck, resource limits \\
+
+    Proxmox total down & Blackout & Sangat Rendah & Snapshot rutin, backup DB cloud, migrasi plan \\
+
+    Dataset deforestasi Indonesia terbatas & Training suboptimal & Sedang & Pre-trained model + few-shot, atau rule-based fallback \\
+
+    Waktu hackathon terbatas & Tidak semua fitur selesai & Sedang & Prioritaskan core flow. Fitur "nice to have" terakhir \\
+
+\end{longtable}
+
+% ============================================================
+\section{Success Metrics}
+% ============================================================
+
+\begin{longtable}{p{5cm} p{3cm} p{5cm}}
+    \toprule
+    \textbf{Metrik} & \textbf{Target} & \textbf{Cara Ukur} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Metrik} & \textbf{Target} & \textbf{Cara Ukur} \\
+    \midrule
+    \endhead
+    \hline
+    \endfoot
+    \bottomrule
+    \endlastfoot
+
+    End-to-end pipeline time & $<15$ menit & Logging timestamp tiap fase \\
+
+    Grid processing speed & $>10$ grid/detik & ML inference logging \\
+
+    Dashboard load time & $<3$ detik & Lighthouse / manual \\
+
+    WebSocket latency & $<500$ ms & Client-side timing \\
+
+    Alert delivery time & $<60$ detik & created\_at vs sent\_at \\
+
+    System uptime & $>99\%$ selama demo & Docker healthcheck \\
+
+    Code quality & No \texttt{any} type, lint pass & TypeScript strict, ESLint \\
+
+\end{longtable}
+
+% ============================================================
+\section{Rencana \& Struktur Tim}
+% ============================================================
+
+\subsection{Pembagian Peran}
+
+\begin{longtable}{p{3.5cm} p{3cm} p{7cm}}
+    \toprule
+    \textbf{Peran} & \textbf{Jumlah} & \textbf{Tanggung Jawab} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+
+    Lead Engineer / Backend & 1 orang & Arsitektur sistem, Backend API (Bun), Database (PostGIS), WebSocket, Deployment \\
+
+    ML Engineer & 1 orang & YOLOv8 pipeline, dataset preparation, model training/optimasi, TFLite export \\
+
+    Frontend Engineer & 1 orang & Dashboard (React + Leaflet), WebSocket client, visualisasi D3.js \\
+
+    DevOps / Integration & 1 orang & Docker, Proxmox, CI/CD, GEE integration, WA Bot, Testing \\
+
+    \end{longtable}
+
+Tim ideal terdiri dari \textbf{3--4 orang} dengan overlap skill untuk mengantisipasi jika ada anggota yang harus fokus di area lain.
+
+% ============================================================
+\section{Potensi Pengembangan ke Depan}
+% ============================================================
+
+\begin{enumerate}
+    \item \textbf{Multi-Satellite Fusion} --- Integrasi data SAR (Sentinel-1) untuk deteksi穿透 awan (cloud-penetrating).
+    \item \textbf{Time-Series Analysis} --- Deteksi tren deforestasi jangka panjang dengan LSTM/Transformer untuk prediksi area berisiko.
+    \item \textbf{Mobile App} --- Aplikasi Android native untuk petugas lapangan dengan GPS tracking dan foto geo-tagged.
+    \item \textbf{Crowdsourced Validation} --- Masyarakat bisa mengirim foto verifikasi dari lokasi yang terdeteksi, menjadi dataset training tambahan.
+    \item \textbf{Integration with Government Systems} --- API untuk Kementerian LHK, KLHK, dan Sistem Informasi Geospasial Nasional.
+    \item \textbf{Carbon Accounting} --- Estimasi emisi karbon berdasarkan luas area deforestasi terdeteksi.
+\end{enumerate}
+
+% ============================================================
+\section{Penutup}
+% ============================================================
+
+Deforest.id bukan sekadar alat monitoring --- ini adalah \textbf{sistem peringatan dini yang mengubah paradigma} dari "menunggu laporan" menjadi "mengetahui sebelum terlambat." Dengan memanfaatkan teknologi satelit, machine learning, dan komunikasi massal (WhatsApp), sistem ini menghadirkan solusi yang \textbf{tepat, cepat, dan mudah diakses} oleh semua pemangku kepentingan --- dari pejabat KLHK hingga petugas lapangan di pelosok Kalimantan.
+
+\begin{quotation}
+\centering
+\textit{"Hutan Indonesia adalah paru-paru dunia.\\
+Deforest.id adalah sistem saraf yang menjaganya tetap hidup."}
+\end{quotation}
+
+\vspace{1cm}
+\noindent
+\textbf{Kontak Tim:}\\
+Nama Tim: [Nama Tim]\\
+Anggota: [Nama 1], [Nama 2], [Nama 3], [Nama 4]\\
+Email: [email@example.com]\\
+GitHub: \href{https://github.com/}{github.com/username/deforest.id}
+
+% ============================================================
+\end{document}
