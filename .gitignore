@@ -1,10 +1,66 @@
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
-site/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.egg
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- LaTeX build artifacts ---
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.spl
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.brf
+*.lof
+*.lot
+_thumbs/
+
+# --- Generated PDFs (source .tex is tracked) ---
+*.pdf
+
+# --- Data & environments ---
+.env
+.env.local
+*.tif
+*.tiff
 data/annotation/tiles/
 data/annotation/masks_auto/
 data/annotation/masks_refined/
 data/annotation/export/
-.env
-*.tif
+
+# --- MkDocs ---
+site/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Docker ---
+.docker/
