@@ -1,0 +1,52 @@
+site_name: Deforest.id
+site_description: Early Warning System Deforestasi — deteksi otomatis kerusakan hutan
+site_url: https://farrelghozy.github.io/Deforest.id
+repo_url: https://github.com/FarrelGhozy/Deforest.id
+repo_name: FarrelGhozy/Deforest.id
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: green
+      accent: lime
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - scheme: slate
+      primary: green
+      accent: lime
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    logo: material/forest
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Data Format: data-format.md
+  - Annotation Pipeline: annotation-pipeline.md
+  - Getting Started: getting-started.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/FarrelGhozy/Deforest.id

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+site/
+data/annotation/tiles/
+data/annotation/masks_auto/
+data/annotation/masks_refined/
+data/annotation/export/
+.env
+*.tif

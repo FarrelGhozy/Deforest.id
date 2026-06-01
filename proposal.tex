@@ -107,7 +107,7 @@
 
 Indonesia adalah negara dengan hutan tropis terbesar ketiga di dunia, namun juga memiliki tingkat deforestasi tertinggi secara global. Sistem pemantauan yang ada saat ini bersifat \textbf{pasif dan reaktif}---data citra satelit tersedia, tetapi tidak ada mekanisme peringatan dini yang otomatis dan langsung menjangkau petugas di lapangan.
 
-\textbf{Deforest.id} hadir sebagai solusi: sebuah \textbf{Early Warning System (EWS)} yang mengubah pemantauan hutan dari pasif menjadi proaktif. Sistem ini secara otomatis menarik citra satelit dari \textbf{Google Earth Engine}, mendeteksi kerusakan lahan menggunakan \textbf{YOLOv8} pada grid-grid koordinat terstandarisasi, menampilkan hasil dalam \textbf{dashboard interaktif berbasis peta} (Leaflet.js) dengan kode warna merah $\to$ kuning $\to$ hijau, dan mengirim \textbf{notifikasi WhatsApp otomatis} berisi koordinat persis dan gambar ke petugas lapangan.
+\textbf{Deforest.id} hadir sebagai solusi: sebuah \textbf{Early Warning System (EWS)} yang mengubah pemantauan hutan dari pasif menjadi proaktif. Sistem ini secara otomatis menarik citra satelit dari \textbf{Google Earth Engine}, mendeteksi kerusakan lahan menggunakan \textbf{U-Net} (semantic segmentation) pada grid-grid koordinat terstandarisasi, menampilkan hasil dalam \textbf{dashboard interaktif berbasis peta} (Leaflet.js) dengan kode warna merah $\to$ kuning $\to$ hijau, dan mengirim \textbf{notifikasi WhatsApp otomatis} berisi koordinat persis dan gambar ke petugas lapangan.
 
 Dengan arsitektur \textbf{distributed container} (Docker di atas Proxmox), beban komputasi Machine Learning diisolasi dari backend, memastikan sistem tetap responsif meskipun sedang memproses ribuan grid citra satelit.
 
@@ -161,7 +161,7 @@ Deforest.id adalah platform \textbf{Early Warning System (EWS)} terintegrasi yan
     \begin{itemize}
         \item \textbf{Dashboard Web} (Leaflet.js) --- Peta interaktif dengan visualisasi grid warna merah/kuning/hijau
         \item \textbf{WhatsApp Bot} (Baileys) --- Notifikasi langsung ke smartphone, tanpa perlu aplikasi tambahan
-        \item \textbf{Detail Modal} --- Side-by-side perbandingan citra asli vs annotated dengan bounding box
+        \item \textbf{Detail Modal} --- Side-by-side perbandingan citra asli vs annotated dengan segmentation mask
     \end{itemize}
 
     \item \textbf{Distributed \& Scalable Architecture} \\
@@ -193,7 +193,7 @@ Deforest.id adalah platform \textbf{Early Warning System (EWS)} terintegrasi yan
 
         % ---- Layer: Processing ----
         \node[block, fill=green!20, below=2.5cm of gee] (fetcher) {\textbf{GEE Fetcher}\\Python Container};
-        \node[block, fill=orange!20, right=2.5cm of fetcher] (ml) {\textbf{ML Inference}\\YOLOv8 Container};
+        \node[block, fill=orange!20, right=2.5cm of fetcher] (ml) {\textbf{ML Inference}\\U-Net Container};
         \node[below=0.5cm of ml, labelnode, xshift=-1.25cm] (layer2) {\textit{Layer Processing}};
 
         \draw[arrow] (gee) -- node[right] {Citra Satelit} (fetcher);
@@ -242,7 +242,7 @@ Deforest.id adalah platform \textbf{Early Warning System (EWS)} terintegrasi yan
     \item \textbf{Akuisisi Data} --- GEE Fetcher (Python) menarik citra Landsat 8/9 atau Sentinel-2 secara periodik (setiap 6 jam, \textit{configurable}).
     \item \textbf{Grid Generation} --- Area of Interest (AOI) dibagi menjadi grid-grid berukuran tetap ($256m \times 256m$). Setiap grid memiliki ID unik, centroid (lat/lng), dan polygon geometry yang disimpan di PostGIS.
     \item \textbf{Image Cropping} --- Setiap grid dipotong (\textit{clipped}) dari citra besar dan disimpan sebagai file PNG terpisah.
-    \item \textbf{ML Inference} --- Queue-driven ML Worker (YOLOv8) memproses grid images dalam batch. Output: confidence score, damage category (severe/moderate/mild/none), dan bounding boxes.
+    \item \textbf{ML Inference} --- Queue-driven ML Worker (U-Net) memproses grid images dalam batch. Output: confidence score, damage category (severe/moderate/mild/none), dan segmentation masks.
     \item \textbf{Database Write} --- Hasil deteksi disimpan ke tabel \texttt{detection\_logs}. Status grid di-update. Trigger database otomatis membuat alert untuk deteksi dengan confidence $> 70\%$.
     \item \textbf{Realtime Push} --- Backend API (Bun + Elysia) mengekspos REST endpoint dan WebSocket. Dashboard menerima update real-time.
     \item \textbf{Notifikasi} --- WA Bot melakukan polling setiap 30 detik ke tabel \texttt{alerts}. Jika ada alert baru yang belum terkirim, bot mengirim pesan WhatsApp berisi koordinat, confidence score, dan gambar annotated.
@@ -304,11 +304,11 @@ Deforest.id adalah platform \textbf{Early Warning System (EWS)} terintegrasi yan
     & Akses gratis ke Landsat/Sentinel-2, cloud masking built-in \\
 
     ML Framework
-    & YOLOv8 (Ultralytics)
-    & State-of-the-art object detection, ringan, inference cepat \\
+    & U-Net (TensorFlow/Keras)
+    & Semantic segmentation akurat untuk citra satelit, encoder-decoder architecture \\
 
     ML Optimization
-    & TensorFlow Lite / ONNX
+    & ONNX / TensorFlow Lite
     & Deployment CPU-friendly, model size $\sim$5--10MB \\
 
     Backend Runtime
@@ -403,7 +403,7 @@ Berikut adalah struktur tabel utama dalam sistem Deforest.id:
 \begin{itemize}
     \item \textbf{grid\_cells} --- Menyimpan grid koordinat spasial dengan geometry polygon dan centroid. Setiap grid memiliki \texttt{status} (healthy/mild/moderate/severe/unknown) yang di-update otomatis oleh trigger saat ada deteksi baru.
     \item \textbf{satellite\_imagery} --- Metadata setiap citra satelit yang ditarik dari GEE: source, scene ID, cloud cover, bounds geometry.
-    \item \textbf{detection\_logs} --- Hasil deteksi ML per grid: confidence score, damage category, bounding boxes (JSONB), path ke annotated image.
+    \item \textbf{detection\_logs} --- Hasil deteksi ML per grid: confidence score, damage category, segmentation mask (JSONB), path ke annotated image.
     \item \textbf{alerts} --- Peringatan yang di-generate otomatis oleh trigger database saat deteksi dengan confidence $\ge 0.7$.
     \item \textbf{notification\_logs} --- Audit trail pengiriman notifikasi (channel, recipient, status, retry count).
     \item \textbf{config} --- Key-value store untuk konfigurasi dinamis (threshold, interval, recipient list) tanpa perlu rebuild container.
@@ -444,7 +444,7 @@ CREATE TABLE detection_logs (
     imagery_id      UUID REFERENCES satellite_imagery(id),
     confidence      NUMERIC(5, 4) NOT NULL,
     damage_category damage_category NOT NULL DEFAULT 'none',
-    bounding_boxes  JSONB DEFAULT '[]',
+    segmentation_mask JSONB DEFAULT '{}',
     annotated_path  TEXT,
     raw_image_path  TEXT,
     inference_time_ms INTEGER,
@@ -533,7 +533,7 @@ ORDER BY a.created_at ASC LIMIT 10;
         \item \textcolor{gray}{$\blacksquare$ Abu-abu} --- Belum diproses / unknown
     \end{itemize}
     \item \textbf{Sidebar Panel} --- Statistik ringkasan, daftar recent alerts, filter kontrol, dan search box.
-    \item \textbf{Detail Modal} --- Muncul saat grid di-click. Menampilkan side-by-side raw vs annotated image, confidence score, bounding box details, timeline chart, dan action buttons.
+    \item \textbf{Detail Modal} --- Muncul saat grid di-click. Menampilkan side-by-side raw vs annotated image, confidence score, segmentation mask details, timeline chart, dan action buttons.
 \end{itemize}
 
 \subsection{Wireframe (Deskripsi)}
@@ -541,7 +541,7 @@ ORDER BY a.created_at ASC LIMIT 10;
 \begin{enumerate}
     \item \textbf{Default View:} Peta Indonesia dengan grid overlay. Semua grid berwarna hijau/abu-abu. Sidebar menunjukkan "No active alerts. Semua area dalam kondisi aman."
     \item \textbf{Alert Scenario:} Tiba-tiba beberapa grid di Kalimantan berubah menjadi merah. Sidebar memunculkan alert card baru dengan animasi. WebSocket push notifikasi real-time. WA Bot mengirim pesan otomatis ke nomor terdaftar.
-    \item \textbf{Investigation:} Petugas klik grid merah. Modal detail muncul: perbandingan citra Landsat vs annotated image dengan bounding box di area yang terdeteksi gundul. Confidence: 94.3\%. Timeline chart menunjukkan tren peningkatan deforestasi dalam 2 minggu terakhir.
+    \item \textbf{Investigation:} Petugas klik grid merah. Modal detail muncul: perbandingan citra Landsat vs annotated image dengan segmentation mask di area yang terdeteksi gundul. Confidence: 94.3\%. Timeline chart menunjukkan tren peningkatan deforestasi dalam 2 minggu terakhir.
     \item \textbf{Action:} Petugas klik "Acknowledge" dan "Laporkan". Status alert berubah. Data otomatis tercatat untuk audit trail.
 \end{enumerate}
 
@@ -597,7 +597,7 @@ ORDER BY a.created_at ASC LIMIT 10;
     \\
     \textbf{F2: ML}
     (Hari 5--7)
-    & YOLOv8 setup, preprocessing, inference worker, postprocessing (NMS), annotated image gen, alert trigger.
+    & U-Net setup, preprocessing, inference worker, postprocessing (segmentation mask), annotated image gen, alert trigger.
     & ML container bisa infer grid. Hasil di DB. Alert auto-created.
 
     \\
@@ -717,7 +717,7 @@ ORDER BY a.created_at ASC LIMIT 10;
 
     Lead Engineer / Backend & 1 orang & Arsitektur sistem, Backend API (Bun), Database (PostGIS), WebSocket, Deployment \\
 
-    ML Engineer & 1 orang & YOLOv8 pipeline, dataset preparation, model training/optimasi, TFLite export \\
+    ML Engineer & 1 orang & U-Net pipeline, dataset preparation, model training/optimasi, ONNX export \\
 
     Frontend Engineer & 1 orang & Dashboard (React + Leaflet), WebSocket client, visualisasi D3.js \\
 
