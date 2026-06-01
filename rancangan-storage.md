@@ -44,6 +44,7 @@
 | `detection_logs` | INSERT — 1 baris per grid per siklus | 200k × 365 = **73 juta** | ~8 GB |
 | `grid_daily_stats` | INSERT — 1 baris per grid per hari | 200k × 365 = **73 juta** | ~4 GB |
 | `grid_cells` | UPDATE status — 1 baris per grid | **200k** statis | ~200 MB |
+| `forest_zones` 🆕 | INSERT — 1 baris per poligon kawasan | ~5.000 (statis) | **~30 MB** |
 | `alerts` | INSERT saat severe | ~10-50/hari = **~18k/tahun** | ~50 MB |
 | `notification_logs` | INSERT per kirim | ~18k/tahun | ~20 MB |
 | `satellite_imagery` | INSERT per siklus | **365 baris** | ~10 MB |
@@ -90,6 +91,10 @@ Images:
 
 ## B. Semi-History (Agregat Harian) — ★ REKOMENDASI
 
+> **UPDATE 2026:** Kini ditambah data kawasan hutan resmi (KLHK/BIG)
+> sebagai lapisan legal overlay. Dampak storage: **~50 MB tambahan**
+> (bersifat statis — sekali import, jarang berubah).
+
 ### Konsep
 
 > State terakhir disimpan (overwrite tiap siklus), riwayat disimpan dalam
@@ -120,13 +125,18 @@ Images:
 | `detection_logs` | **UPSERT** — 1 baris per grid (overwrite) | **200k** (konstan) | ~30 MB |
 | `grid_daily_stats` | INSERT — 1 baris per grid per hari | 200k × 365 = **73 juta** | ~4 GB |
 | `grid_cells` | UPDATE status — 1 baris per grid | **200k** statis | ~200 MB |
+| `forest_zones` 🆕 | INSERT — 1 baris per poligon kawasan | ~5.000 (statis, sekali import) | **~30 MB** |
 | `alerts` | INSERT saat severe | ~18k/tahun | ~50 MB |
 | `notification_logs` | INSERT per kirim | ~18k/tahun | ~20 MB |
 | **Storage images** | Severe annotated only | ~50/hari = ~18k/tahun | **~9 GB** |
 
-**Total storage DB:** ~4,3 GB/tahun ✅
+**Total storage DB:** ~4,33 GB/tahun ✅ (+ ~30 MB dari forest_zones)
 **Total storage images:** ~9 GB/tahun ✅
 **Total semua:** **<15 GB/tahun** ✅✅✅
+
+> **Catatan:** `forest_zones` bersifat statis — diisi sekali saat inisialisasi wilayah.
+> Data bersumber dari REST API KLHK SIGAP & BIG Satupeta. Tidak bertambah per siklus.
+> `grid_cells.forest_zone_id` adalah FK → forest_zones.id, sudah termasuk dalam 200 MB.
 
 ### Detail — Cara Kerja UPSERT detection_logs
 
@@ -259,6 +269,7 @@ Backup: pg_dump mingguan ke Cloud Storage (~$1-2/bln)
 |-------|------------|-------------------|-------------|
 | `detection_logs` | **UPSERT** — 1 baris per grid | **200k** konstan | ~30 MB |
 | `grid_cells` | UPDATE status | **200k** konstan | ~200 MB |
+| `forest_zones` 🆕 | INSERT — 1 baris per poligon kawasan | ~5.000 (statis) | **~30 MB** |
 | `alerts` | INSERT saat severe | ~18k/tahun | ~50 MB |
 | `notification_logs` | INSERT per kirim | ~18k/tahun | ~20 MB |
 | `grid_daily_stats` | **TIDAK ADA** | 0 | 0 |
@@ -330,8 +341,9 @@ Backup: pg_dump seminggu sekali ~10 detik ✅
 | **Trend chart 30 hari** | ✅ Detail per siklus | ✅ Daily aggregate | ❌ Tidak ada |
 | **Audit trail EUDR** | ✅ Lengkap | ⚠️ Terbatas | ❌ Tidak ada |
 | **Data ML training** | ✅ Melimpah | ⚠️ Sample 1% | ❌ Tidak ada |
+| **Overlay kawasan hutan** | ✅ | ✅ | ✅ |
 | **Peta warna real-time** | ✅ | ✅ | ✅ |
-| **Alert WA** | ✅ | ✅ | ✅ |
+| **Alert WA + dasar hukum** | ✅ | ✅ | ✅ |
 | **Grid detail (state skr)** | ✅ | ✅ | ✅ |
 | | | | |
 | **Update data** | 1×/hari | 1×/hari | 1×/hari |

@@ -13,32 +13,37 @@ Deforestasi di Indonesia merupakan salah satu yang tertinggi di dunia. Sistem mo
 
 ### 1.2 Solusi: Deforest.id
 
-Deforest.id adalah platform **Early Warning System (EWS)** yang mengubah pemantauan hutan dari pasif menjadi **proaktif dan real-time**. Sistem ini secara otomatis:
+Deforest.id adalah platform **Early Warning System (EWS)** yang mengubah pemantauan hutan dari pasif menjadi **proaktif, legal-aware, dan real-time**. Sistem ini secara otomatis:
 1. Menarik citra satelit dari **Google Earth Engine**
 2. Membagi wilayah hutan ke dalam **grid koordinat** terstandarisasi
 3. Mendeteksi anomali/kerusakan lahan menggunakan **YOLOv8 / TensorFlow Lite**
-4. Menampilkan hasil dalam **dashboard interaktif berbasis peta** dengan sistem warna (merah/kuning/hijau)
-5. Mengirim **notifikasi WhatsApp otomatis** berisi koordinat, confidence score, dan gambar
+4. **Meng-overlay data kawasan hutan resmi dari KLHK & BIG** (SIGAP, One Map Policy)
+5. Menampilkan hasil dalam **dashboard interaktif berbasis peta** dengan sistem warna (merah/kuning/hijau) **berdasarkan status legal kawasan**
+6. Mengirim **notifikasi WhatsApp otomatis** berisi koordinat, confidence score, gambar, **dan landasan hukum kawasan**
 
 ### 1.3 Unique Selling Proposition (USP) — Untuk Presentasi Juri
 
 | USP | Deskripsi | Dampak |
 |-----|-----------|--------|
+| **Legal-Aware EWS** | Setiap alert dilengkapi status kawasan hutan resmi dari KLHK + nomor SK penetapan | Notifikasi bukan asal — punya **kekuatan hukum** |
+| **One Map Policy Integration** | Mengintegrasikan data SIGAP KLHK & BIG Satupeta langsung ke pipeline deteksi | **Selaras dengan kebijakan pemerintah** — bukan "proyek asing" |
+| **Grid-Based Precision** | Pembagian area ke dalam grid koordinat + overlay kawasan hutan resmi | Akurasi spasial + legal tinggi |
 | **Proaktif vs Reaktif** | Sistem menjemput bola — tidak perlu menunggu laporan manual | Respon 24-48 jam lebih cepat |
-| **Grid-Based Precision** | Pembagian area ke dalam grid koordinat memungkinkan deteksi hingga level sub-hektar | Akurasi spasial tinggi |
-| **Multi-Platform Alert** | WhatsApp Bot mengirim notifikasi langsung ke HP petugas | Aksesibilitas maksimal tanpa perlu internet mahal |
+| **Multi-Platform Alert** | WhatsApp Bot mengirim notifikasi dengan info status hutan + dasar hukum | Aksesibilitas maksimal, siap jadi **alat bukti** |
 | **Distributed Architecture** | ML berjalan di container terpisah, tidak membebani backend | Skalabilitas horizontal |
 | **Zero Manual Intervention** | Full pipeline otomatis dari akuisisi data hingga notifikasi | Cocok untuk daerah dengan SDM terbatas |
 
 ### 1.4 Perbedaan dengan Sistem Existing
 
-| Aspek | Sistem Tradisional | Deforest.id |
-|-------|-------------------|-------------|
-| Sumber Data | Survey lapangan (manual) | Satelit (otomatis, periodik) |
-| Deteksi | Visual interpretasi | Machine Learning (YOLOv8) |
-| Pelaporan | Laporan PDF mingguan/bulanan | Dashboard real-time + WA notifikasi |
-| Biaya | Tinggi (surveyor, transportasi) | Rendah (hanya infrastruktur cloud) |
-| Skalabilitas | Terbatas SDM | Horizontal (Docker + Proxmox) |
+| Aspek | Global Forest Watch / DETER / RADD | Deforest.id |
+|-------|-----------------------------------|-------------|
+| Sumber Data | Satelit global | Satelit + **data kawasan hutan resmi KLHK/BIG** |
+| Deteksi | Perubahan tutupan lahan | Perubahan tutupan lahan + **klasifikasi legal kawasan** |
+| Landasan Hukum | Tidak ada | ✅ **UU 41/1999, Permen LHK 7/2021, UU Cipta Kerja** |
+| Alert WA | ❌ Tidak ada | ✅ Ada + **dasar hukum kawasan** |
+| One Map Policy | ❌ Tidak terintegrasi | ✅ **Terintegrasi langsung** |
+| Pelaporan | Dashboard global | Dashboard untuk konteks Indonesia |
+| Biaya | Gratis / $10-50rb/thn | Rendah (VPS Rp 400rb/bln) |
 
 ---
 
@@ -47,24 +52,28 @@ Deforest.id adalah platform **Early Warning System (EWS)** yang mengubah pemanta
 ### 2.1 Arsitektur High-Level
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        PROXMOX HOST                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
-│  │ Container│  │ Container│  │ Container│  │   Container      │   │
-│  │    1     │  │    2     │  │    3     │  │       4          │   │
-│  │ GEE Data │  │  ML      │  │ Backend  │  │   PostgreSQL     │   │
-│  │ Fetcher  │  │ Inference│  │ Bun/Node │  │   + PostGIS      │   │
-│  │ (Python) │  │(Python)  │  │ (API)    │  │                  │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────────────────┘   │
-│       │              │             │                               │
-│  ┌────┴─────┐  ┌────┴─────┐       │           ┌──────────────────┐│
-│  │ Container│  │ Container│       │           │   Container      ││
-│  │    5     │  │    6     │       └───────────│       7          ││
-│  │ Frontend │  │  WA Bot  │                   │   Redis Cache    ││
-│  │(React +  │  │(Baileys) │                   │                  ││
-│  │ Leaflet) │  │          │                   │                  ││
-│  └──────────┘  └──────────┘                   └──────────────────┘│
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              VPS / DEDICATED SERVER                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
+│  │ GEE Data │  │  GIS     │  │  ML      │  │ Backend  │  │ PostgreSQL │  │
+│  │ Fetcher  │  │ Overlay  │  │ Inference│  │ Bun/Node │  │ + PostGIS  │  │
+│  │ (Python) │  │ (Python) │  │ (Python) │  │ (API)    │  │            │  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────────┘  │
+│       │              │             │             │                        │
+│       │              │             │             │    ┌──────────────────┐│
+│  ┌────┴─────┐  ┌────┴─────┐       │             └────│   Redis Cache    ││
+│  │ Frontend │  │  WA Bot  │       │                  │                  ││
+│  │(React +  │  │(Baileys) │       │                  └──────────────────┘│
+│  │ Leaflet) │  │          │       │                                      │
+│  └──────────┘  └──────────┘       │                                      │
+│                                   │    ┌──────────────────────────────┐  │
+│  ══════════════════════════════════════╣   SUMBER DATA PEMERINTAH      ║  │
+│                                   │    ║                               ║  │
+│                                   │    ║ Geoportal KLHK (SIGAP)        ║  │
+│                                   └────║ BIG Satupeta (One Map Policy)  ║  │
+│                                        ║ UU 41/1999, Permen LHK 7/2021 ║  │
+│                                        └──────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 Alur Data (Data Flow) — Detail
@@ -99,6 +108,67 @@ Per-Grid Image Crop
     ├── Antrian (Queue) dibuat untuk ML Inference
 ```
 
+#### FASE 1B: GIS Overlay — Data Kawasan Hutan Resmi Pemerintah
+
+```
+Geoportal KLHK (SIGAP) — https://geoportal.menlhk.go.id
+    │
+    ├── REST API: ArcGIS REST Service
+    ├── Layer: Penetapan_Kawasan_Hutan (MapServer/0)
+    ├── Format: GeoJSON
+    │
+    ▼
+BIG Satupeta (One Map Policy) — https://kspservices.big.go.id
+    │
+    ├── REST API: ArcGIS REST Service
+    ├── Layer: KEHUTANAN (MapServer/0)
+    ├── Fields:
+    │   ├── nkws → Nama Kawasan (contoh: "CA JANTHO", "ANAK LAUT")
+    │   ├── fungsitap → Fungsi Kawasan (lihat tabel kode)
+    │   └── nosktap → Nomor SK Penetapan
+    │   └── tglsktap → Tanggal SK
+    │
+    ▼
+GIS Overlay Engine Container (Python)
+    │
+    ├── Pull data poligon kawasan hutan dari KLHK/BIG
+    │   ├── Query: REST API → GeoJSON → INSERT ke forest_zones
+    │   ├── Interval: mingguan (data jarang berubah)
+    │   └── Simpan dengan geometry asli (POLYGON, 4326)
+    │
+    ├── Spatial Join setiap grid_cells dengan forest_zones:
+    │   ├── ST_Intersects(grid.geometry, zone.geometry)
+    │   ├── Hasil: setiap grid mendapat zone_id
+    │   └── UPDATE grid_cells.forest_zone_id = zone.id
+    │
+    ├── Klasifikasi Fungsi Kawasan Hutan (fungsitap):
+    │
+    │   Kode    │  Fungsi Kawasan        │  Kategori  │ Alert Level
+    │   ────────┼────────────────────────┼────────────┼─────────────
+    │   100100  │  Hutan Lindung (HL)    │  PROTECTED │ 🔴 CRITICAL
+    │   100200  │  Hutan Suaka Alam      │  CONSERV   │ 🔴 CRITICAL
+    │   100210  │  Cagar Alam (CA)       │  CONSERV   │ 🔴 CRITICAL
+    │   100211  │  Suaka Margasatwa (SM) │  CONSERV   │ 🔴 CRITICAL
+    │   100300  │  Hutan Konservasi      │  CONSERV   │ 🔴 CRITICAL
+    │   200000  │  Hutan Produksi (HP)   │  PRODUKSI  │ 🟡 HIGH
+    │   200100  │  Hutan Produksi Terbatas│ PRODUKSI  │ 🟡 HIGH
+    │   200200  │  Hutan Produksi Biasa  │  PRODUKSI  │ 🟡 MEDIUM
+    │   200300  │  Hutan Produksi Konversi│ PRODUKSI  │ 🟢 LOW
+    │   Lainnya │  APL/Non-Kawasan       │  NON-HUTAN│ ⚪ INFO
+    │
+    │   *Data berdasarkan Permen LHK No. 7 Tahun 2021
+    │
+    ├── Simpan ke tabel forest_zones:
+    │   ├── zone_code (fungsitap) — kode fungsi kawasan
+    │   ├── zone_name (nkws) — nama kawasan (contoh: "CA JANTHO")
+    │   ├── geometry — polygon asli dari BIG/KLHK
+    │   ├── legal_decree (nosktap) — nomor SK penetapan
+    │   ├── decree_date (tglsktap) — tanggal SK
+    │   └── category — PROTECTED | CONSERV | PRODUKSI | NON_HUTAN
+    │
+    └── Output: grid_cells.forest_zone_id terisi (siap untuk FASE 2)
+```
+
 #### FASE 2: Machine Learning Inference
 
 ```
@@ -122,12 +192,26 @@ ML Container (YOLOv8 / TFLite)
     │   └── processed_image: annotated image (dengan bounding box overlay)
     │
     ▼
-Results Writer
+Results Writer + Legal Validator (NEW)
     │
-    ├── Menyimpan hasil ke tabel `detection_logs`
-    ├── Menyimpan annotated image ke shared volume
-    ├── Jika confidence > threshold (default 0.7):
+    ├── 1. Menyimpan hasil ke tabel `detection_logs`
+    │
+    ├── 2. Cek forest_zone_id di grid_cells:
+    │   ├── Jika grid di HUTAN LINDUNG / KONSERVASI:
+    │   │   → Alert severity dinaikkan +1 level (escalation)
+    │   ├── Jika grid di HUTAN PRODUKSI:
+    │   │   → Alert severity normal (sesuai confidence)
+    │   ├── Jika grid di NON-KAWASAN (APL):
+    │   │   → Alert severity diturunkan -1 level
+    │   └── Jika forest_zone_id kosong:
+    │       → Flag "UNVERIFIED" — butuh review manual
+    │
+    ├── 3. Jika confidence > threshold (default 0.7):
     │   └── Trigger Alert → masuk ke tabel `alerts`
+    │       └── Alert berisi: confidence + kategori kerusakan + STATUS LEGAL KAWASAN + NO SK
+    │
+    ├── 4. Update annotated image:
+    │   └── Tambahkan overlay label: "HUTAN LINDUNG — SK.9070/..." di gambar
     │
     ▼
 Update Grid Status
@@ -221,14 +305,21 @@ WA Bot Container (Node.js + Baileys)
     │   │   │ Lat: -3.4567, Lng: 114.9876             │
     │   │   │ Grid ID: GRID-2024-A1                   │
     │   │   │                                         │
+    │   │   │ *Status Kawasan:* 🔴 HUTAN LINDUNG      │
+    │   │   │ *Dasar Hukum:* SK.9070/MENLHK-PKTL/...  │
+    │   │   │                                         │
     │   │   │ *Tingkat Kerusakan:* 🔴 SEVERE          │
     │   │   │ *Confidence:* 94.3%                     │
     │   │   │ *Waktu Deteksi:* 2024-01-15 14:30:22    │
     │   │   │                                         │
+    │   │   │ *Pelanggaran:* UU 41/1999 Pasal 50      │
+    │   │   │ Ancaman pidana: 10 tahun penjara        │
+    │   │   │                                         │
     │   │   │ 📍 https://maps.google.com/?q=-3.4567,  │
     │   │   │    114.9876                             │
-    │   │   │ 🌐 Lihat Dashboard: https://deforest.id │
+    │   │   │ 🌐 https://deforest.id/grid/GRID-2024-A1│
     │   │   └─────────────────────────────────────────┘
+    │   └── (gambar annotated overlay dilampirkan dengan label kawasan hutan)
     │   └── (gambar annotated overlay dilampirkan)
     │
     ├── After Send:
@@ -266,18 +357,19 @@ Timeline:
 | Komponen | Teknologi | Alasan Pemilihan |
 |----------|-----------|------------------|
 | **Data Source** | Google Earth Engine Python API | Akses gratis ke Landsat/Sentinel, cloud-free composite |
+| **GIS Data** | KLHK Geoportal (SIGAP) + BIG Satupeta | Data kawasan hutan resmi pemerintah, REST API GeoJSON |
 | **ML Framework** | YOLOv8 (Ultralytics) | Ringan, akurasi tinggi, inference cepat di CPU |
 | **ML Optimization** | TensorFlow Lite / ONNX | Deployment CPU-friendly, ukuran model kecil (~5-10MB) |
 | **Backend API** | Bun + Elysia.js | Runtime cepat (3x Node.js), native TS support, ringan di container |
 | **Database** | PostgreSQL 16 + PostGIS 3.4 | Spatial query support, indexing R-Tree, robust |
 | **Cache & Queue** | Redis 7 | Pub/Sub untuk WebSocket, queue management, fast cache |
 | **Frontend** | React 18 + Vite + TypeScript | Build cepat, HMR, ecosystem matang |
-| **Map Library** | Leaflet.js 1.9 | Open-source, tidak perlu API key, plugin ecosystem |
+| **Map Library** | Leaflet.js 1.9 + MapLibre GL JS | Open-source, support GeoJSON overlay layer pemerintah |
 | **Visualization** | D3.js (untuk chart timeline) | Fleksibel untuk data time-series |
 | **WA Bot** | Baileys (Node.js) | Library WhatsApp Web, gratis, komunitas aktif |
-| **Container Runtime** | Docker + Docker Compose | Orchestrasi sederhana untuk Proxmox |
+| **Container Runtime** | Docker + Docker Compose | Orchestrasi sederhana |
 | **Reverse Proxy** | Nginx (dalam container) | Load balancing, SSL termination, static file serving |
-| **Storage** | Docker Volumes (NFS-backed) | Shared storage antar container |
+| **Storage** | Docker Volumes | Shared storage antar container |
 
 ### 3.2 Alokasi Resource Proxmox / Docker
 
@@ -286,14 +378,15 @@ Timeline:
 | Container | CPU | RAM | Storage | Image Size | Priority |
 |-----------|-----|-----|---------|------------|----------|
 | **1. GEE Fetcher** (Python) | 1 vCPU | 2 GB | 50 GB | ~1.2 GB | Runs periodically |
-| **2. ML Inference** (Python) | 4 vCPU | 8 GB | 20 GB | ~3.5 GB (includes model) | **HIGH** — bottleneck utama |
-| **3. Backend API** (Bun) | 1 vCPU | 1 GB | 1 GB | ~500 MB | **HIGH** — serving requests |
-| **4. PostgreSQL + PostGIS** | 2 vCPU | 4 GB | 100 GB | ~1.5 GB | **HIGH** — I/O intensive |
-| **5. Frontend** (React/Vite) | 1 vCPU | 1 GB | 1 GB | ~800 MB (build) | Low — static files |
-| **6. WA Bot** (Node.js) | 1 vCPU | 512 MB | 1 GB | ~400 MB | Low — event-based |
-| **7. Redis** | 1 vCPU | 1 GB | 5 GB | ~150 MB | Medium — cache + pub/sub |
-| **8. Nginx** | 0.5 vCPU | 256 MB | 500 MB | ~50 MB | Low — reverse proxy |
-| **Total Alokasi** | **11.5 vCPU** | **17.8 GB** | **~178 GB** | | |
+| **2. GIS Overlay** (Python) | 1 vCPU | 1 GB | 10 GB | ~800 MB | Periodic — data pemerintah |
+| **3. ML Inference** (Python) | 4 vCPU | 8 GB | 20 GB | ~3.5 GB (includes model) | **HIGH** — bottleneck utama |
+| **4. Backend API** (Bun) | 1 vCPU | 1 GB | 1 GB | ~500 MB | **HIGH** — serving requests |
+| **5. PostgreSQL + PostGIS** | 2 vCPU | 4 GB | 100 GB | ~1.5 GB | **HIGH** — I/O intensive |
+| **6. Frontend** (React/Vite) | 1 vCPU | 1 GB | 1 GB | ~800 MB (build) | Low — static files |
+| **7. WA Bot** (Node.js) | 1 vCPU | 512 MB | 1 GB | ~400 MB | Low — event-based |
+| **8. Redis** | 1 vCPU | 1 GB | 5 GB | ~150 MB | Medium — cache + pub/sub |
+| **9. Nginx** | 0.5 vCPU | 256 MB | 500 MB | ~50 MB | Low — reverse proxy |
+| **Total Alokasi** | **12.5 vCPU** | **18.8 GB** | **~188 GB** | | |
 
 > **Catatan:** Sisa resource (4.5 vCPU, ~14 GB RAM) digunakan untuk overhead Proxmox, monitoring (Prometheus/Grafana opsional), dan buffer scaling.
 
@@ -351,6 +444,12 @@ services:
     depends_on: [redis, postgis]
     deploy: [resources limits: cpus=1, memory=2G]
 
+  gis-overlay:
+    build: ./services/gis-overlay  # Python — KLHK/BIG data puller
+    depends_on: [postgis]
+    deploy: [resources limits: cpus=1, memory=1G]
+    # Pull data kawasan hutan dari KLHK & BIG, spatial join ke grid_cells
+
   ml-inference:
     build: ./services/ml-inference
     volumes: [griddata:/data]
@@ -389,18 +488,35 @@ services:
 
 ```
 ┌──────────────────────┐       ┌──────────────────────────┐
-│    grid_cells         │       │    detection_logs         │
-│──────────────────────│       │──────────────────────────│
-│ PK id UUID           │──1:N──│ PK id UUID               │
-│    grid_code VARCHAR  │       │ FK grid_id UUID          │
-│    geometry GEOMETRY  │       │    confidence FLOAT       │
-│    centroid GEOGRAPHY │       │    damage_category ENUM   │
-│    area_ha FLOAT      │       │    bounding_boxes JSONB   │
-│    status ENUM        │       │    annotated_path TEXT    │
-│    last_detection_id  │       │    raw_image_path TEXT    │
-│    created_at         │       │    created_at TIMESTAMPTZ │
-│    updated_at         │       │    metadata JSONB         │
+│    forest_zones       │       │    grid_cells             │
+│  (Data Pemerintah)    │       │──────────────────────────│
+│──────────────────────│       │ PK id UUID               │
+│ PK id UUID           │──1:N──│ FK forest_zone_id UUID   │
+│    zone_code VARCHAR │       │    grid_code VARCHAR      │
+│    zone_name VARCHAR │       │    geometry GEOMETRY      │
+│    geometry GEOMETRY │       │    centroid GEOGRAPHY     │
+│    category ENUM     │       │    area_ha FLOAT          │
+│    legal_decree TEXT │       │    status ENUM            │
+│    decree_date DATE  │       │    forest_zone_id UUID ───│
+│    source VARCHAR    │       │    last_detection_id      │
+│    metadata JSONB    │       │    created_at             │
+│    created_at        │       │    updated_at             │
 └──────────────────────┘       └───────────┬──────────────┘
+        │                                   │
+        │                                   │ 1:N
+        │                                   ▼
+        │                      ┌──────────────────────────┐
+        │                      │    detection_logs         │
+        │                      │──────────────────────────│
+        │                      │ PK id UUID               │
+        │                      │ FK grid_id UUID          │
+        │                      │    confidence FLOAT       │
+        │                      │    damage_category ENUM   │
+        │                      │    bounding_boxes JSONB   │
+        │                      │    annotated_path TEXT    │
+        │                      │    legal_override TEXT    │
+        │                      │    created_at TIMESTAMPTZ │
+        │                      └───────────┬──────────────┘
         │                                   │
         │                                   │ 1:1 (optional)
         │                                   ▼
@@ -410,11 +526,14 @@ services:
         │                      │ PK id UUID               │
         │                      │ FK detection_id UUID     │
         │                      │    severity ENUM          │
+        │                      │    legal_violation BOOLEAN│
+        │                      │    forest_zone_id UUID    │
         │                      │    notified BOOLEAN       │
         │                      │    acknowledged BOOLEAN   │
         │                      │    sent_at TIMESTAMPTZ    │
         │                      │    acknowledged_at        │
         │                      │    whatsapp_status TEXT   │
+        │                      │    retry_count INTEGER    │
         │                      └──────────────────────────┘
         │
         │                      ┌──────────────────────────┐
@@ -427,6 +546,7 @@ services:
         │                      │    captured_at DATE       │
         │                      │    ingested_at TIMESTAMPTZ│
         │                      │    raw_path TEXT          │
+        │                      │    bounds GEOMETRY        │
         │                      │    metadata JSONB         │
         │                      └──────────────────────────┘
         │
@@ -455,7 +575,43 @@ CREATE TYPE alert_severity AS ENUM ('critical', 'high', 'medium', 'low');
 CREATE TYPE notification_status AS ENUM ('pending', 'sent', 'failed', 'retrying');
 
 -- ============================================================
--- Tabel: grid_cells
+-- ENUM Types (tambahan untuk legal basis)
+-- ============================================================
+CREATE TYPE forest_zone_category AS ENUM (
+    'PROTECTED',    -- Hutan Lindung, Suaka Alam, Cagar Alam, SM
+    'CONSERV',      -- Hutan Konservasi, Taman Nasional, Taman Wisata Alam
+    'PRODUKSI',     -- Hutan Produksi, HPT, HPK
+    'NON_HUTAN',    -- APL, Areal Penggunaan Lain
+    'UNVERIFIED'    -- Belum di-overlay dengan data pemerintah
+);
+
+-- ============================================================
+-- Tabel: forest_zones
+-- Data kawasan hutan resmi dari KLHK (SIGAP) & BIG (One Map Policy)
+-- Sumber: https://geoportal.menlhk.go.id (Penetapan_Kawasan_Hutan)
+--         https://kspservices.big.go.id (KEHUTANAN MapServer)
+-- Landasan: Permen LHK No. 7 Tahun 2021, UU 41/1999
+-- ============================================================
+CREATE TABLE forest_zones (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    zone_code       VARCHAR(10) NOT NULL,                -- fungsitap (contoh: '100100' = HL)
+    zone_name       VARCHAR(250) NOT NULL,               -- nkws (contoh: 'CA JANTHO')
+    category        forest_zone_category NOT NULL,       -- Kategori internal
+    geometry        GEOMETRY(MULTIPOLYGON, 4326) NOT NULL, -- Polygon dari pemerintah
+    legal_decree    TEXT,                                -- nosktap (Nomor SK Penetapan)
+    decree_date     DATE,                                -- tglsktap (Tanggal SK)
+    source          VARCHAR(50) DEFAULT 'KLHK',          -- 'KLHK' | 'BIG'
+    metadata        JSONB DEFAULT '{}',                   -- Data mentah dari API
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_forest_zones_geometry_gist ON forest_zones USING GIST (geometry);
+CREATE INDEX idx_forest_zones_category ON forest_zones (category);
+CREATE INDEX idx_forest_zones_zone_code ON forest_zones (zone_code);
+
+-- ============================================================
+-- Tabel: grid_cells (dimodifikasi dengan FK ke forest_zones)
 -- Menyimpan grid koordinat spasial pembagian area hutan
 -- ============================================================
 CREATE TABLE grid_cells (
@@ -465,6 +621,8 @@ CREATE TABLE grid_cells (
     centroid        GEOGRAPHY(POINT, 4326) NOT NULL,    -- Titik pusat grid (untuk distance query)
     area_ha         NUMERIC(10, 4),                      -- Luas area dalam hektar
     status          grid_status DEFAULT 'unknown',
+    forest_zone_id  UUID REFERENCES forest_zones(id),   -- FK ke kawasan hutan resmi
+    zone_category   forest_zone_category DEFAULT 'UNVERIFIED', -- Kategori legal (cache)
     last_detection_id UUID,                              -- FK ke detection_logs (di-set via trigger)
     metadata        JSONB DEFAULT '{}',                  -- Info tambahan (region, zone, dsb)
     created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -606,12 +764,17 @@ INSERT INTO config (key, value, description) VALUES
     ('map.center', '{"lat": -2.5, "lng": 117.0}', 'Default center map (Indonesia)');
 
 -- ============================================================
--- Trigger: Auto-create alert saat deteksi severe/moderate
+-- Trigger: Auto-create alert dengan mempertimbangkan legal status
 -- ============================================================
 CREATE OR REPLACE FUNCTION auto_create_alert()
 RETURNS TRIGGER AS $$
 DECLARE
     threshold NUMERIC;
+    zone_cat forest_zone_category;
+    zone_name VARCHAR(250);
+    decree TEXT;
+    final_severity alert_severity;
+    is_legal_violation BOOLEAN;
 BEGIN
     -- Ambil threshold dari config
     SELECT COALESCE((value->>0)::NUMERIC, 0.7)
@@ -619,21 +782,62 @@ BEGIN
     FROM config
     WHERE key = 'detection.threshold';
 
+    -- Ambil status legal kawasan dari grid
+    SELECT gc.zone_category, fz.zone_name, fz.legal_decree
+    INTO zone_cat, zone_name, decree
+    FROM grid_cells gc
+    LEFT JOIN forest_zones fz ON gc.forest_zone_id = fz.id
+    WHERE gc.id = NEW.grid_id;
+
+    -- Hitung alert severity berdasarkan kombinasi ML + legal status
+    IF NEW.damage_category = 'severe' THEN
+        IF zone_cat IN ('PROTECTED', 'CONSERV') THEN
+            final_severity := 'critical';
+            is_legal_violation := TRUE;
+        ELSIF zone_cat = 'PRODUKSI' THEN
+            final_severity := 'high';
+            is_legal_violation := FALSE;
+        ELSE
+            final_severity := 'medium';
+            is_legal_violation := FALSE;
+        END IF;
+    ELSIF NEW.damage_category = 'moderate' THEN
+        IF zone_cat IN ('PROTECTED', 'CONSERV') THEN
+            final_severity := 'high';
+            is_legal_violation := TRUE;
+        ELSIF zone_cat = 'PRODUKSI' THEN
+            final_severity := 'medium';
+            is_legal_violation := FALSE;
+        ELSE
+            final_severity := 'low';
+            is_legal_violation := FALSE;
+        END IF;
+    ELSIF NEW.damage_category = 'mild' THEN
+        IF zone_cat IN ('PROTECTED', 'CONSERV') THEN
+            final_severity := 'medium';
+            is_legal_violation := TRUE;
+        ELSE
+            final_severity := 'low';
+            is_legal_violation := FALSE;
+        END IF;
+    END IF;
+
     -- Hanya untuk deteksi dengan confidence di atas threshold
-    IF NEW.confidence >= threshold AND NEW.damage_category IN ('severe', 'moderate') THEN
-        INSERT INTO alerts (detection_id, severity, summary)
-        VALUES (
+    IF NEW.confidence >= threshold AND NEW.damage_category IN ('severe', 'moderate', 'mild') THEN
+        INSERT INTO alerts (
+            detection_id, severity, legal_violation, forest_zone_id, summary
+        ) VALUES (
             NEW.id,
-            CASE
-                WHEN NEW.damage_category = 'severe' THEN 'critical'
-                WHEN NEW.damage_category = 'moderate' THEN 'high'
-                ELSE 'medium'
-            END,
+            final_severity,
+            COALESCE(is_legal_violation, FALSE),
+            (SELECT forest_zone_id FROM grid_cells WHERE id = NEW.grid_id),
             FORMAT(
-                'Deteksi %s pada grid %s dengan confidence %s%%',
-                NEW.damage_category,
-                (SELECT grid_code FROM grid_cells WHERE id = NEW.grid_id),
-                ROUND(NEW.confidence * 100, 1)
+                '[%s] %s di %s | Confidence: %s%% | Dasar: %s',
+                zone_cat,
+                INITCAP(NEW.damage_category::TEXT),
+                COALESCE(zone_name, 'UNKNOWN'),
+                ROUND(NEW.confidence * 100, 1),
+                COALESCE(decree, 'N/A')
             )
         );
 
@@ -659,47 +863,56 @@ CREATE TRIGGER trg_auto_create_alert
 ### 4.3 Query Penting (Contoh)
 
 ```sql
--- 1. Grid dalam bounding box untuk map view
-SELECT id, grid_code, ST_AsGeoJSON(geometry) as geojson, status,
-       last_detection_id
-FROM grid_cells
+-- 1. Grid dalam bounding box dengan status legal kawasan (untuk map view)
+SELECT gc.id, gc.grid_code, ST_AsGeoJSON(gc.geometry) as geojson,
+       gc.status, gc.zone_category,
+       fz.zone_name, fz.legal_decree
+FROM grid_cells gc
+LEFT JOIN forest_zones fz ON gc.forest_zone_id = fz.id
 WHERE ST_Intersects(
-    geometry,
+    gc.geometry,
     ST_MakeEnvelope(114.0, -3.0, 115.0, -2.0, 4326)
 );
 
--- 2. Statistik kerusakan
+-- 2. Statistik kerusakan per kategori kawasan hutan
 SELECT
-    status,
+    gc.zone_category,
+    gc.status,
     COUNT(*) as grid_count,
-    SUM(area_ha) as total_area_ha,
-    ROUND(SUM(area_ha) * 100.0 / SUM(SUM(area_ha)) OVER(), 2) as percentage
-FROM grid_cells
-WHERE status != 'unknown'
-GROUP BY status;
+    SUM(gc.area_ha) as total_area_ha
+FROM grid_cells gc
+WHERE gc.status != 'unknown'
+GROUP BY gc.zone_category, gc.status
+ORDER BY gc.zone_category, gc.status;
 
--- 3. Riwayat deteksi per grid (time series)
-SELECT
-    dl.created_at,
-    dl.confidence,
-    dl.damage_category
-FROM detection_logs dl
-WHERE dl.grid_id = 'some-uuid'
-ORDER BY dl.created_at DESC
-LIMIT 50;
-
--- 4. Alert yang belum terkirim (untuk WA Bot polling)
-SELECT a.id, a.severity, a.summary,
-       dl.confidence, dl.damage_category,
+-- 3. Semua alert legal violation (untuk laporan ke KLHK)
+SELECT a.id, a.severity, a.created_at,
+       dl.damage_category, dl.confidence,
        gc.grid_code,
+       fz.zone_name, fz.zone_code, fz.legal_decree,
+       ST_AsGeoJSON(gc.centroid::geometry) as centroid
+FROM alerts a
+JOIN detection_logs dl ON a.detection_id = dl.id
+JOIN grid_cells gc ON dl.grid_id = gc.id
+JOIN forest_zones fz ON gc.forest_zone_id = fz.id
+WHERE a.legal_violation = TRUE
+  AND a.created_at >= NOW() - INTERVAL '30 days'
+ORDER BY a.created_at DESC;
+
+-- 4. Alert yang belum terkirim (untuk WA Bot polling) — lengkap dengan legal info
+SELECT a.id, a.severity, a.summary, a.legal_violation,
+       dl.confidence, dl.damage_category,
+       gc.grid_code, gc.zone_category,
+       fz.zone_name, fz.zone_code, fz.legal_decree,
        ST_X(gc.centroid::geometry) as lat,
        ST_Y(gc.centroid::geometry) as lng,
        dl.annotated_path
 FROM alerts a
 JOIN detection_logs dl ON a.detection_id = dl.id
 JOIN grid_cells gc ON dl.grid_id = gc.id
+LEFT JOIN forest_zones fz ON gc.forest_zone_id = fz.id
 WHERE a.notified = FALSE
-ORDER BY a.created_at ASC
+ORDER BY a.severity DESC, a.created_at ASC
 LIMIT 10;
 
 -- 5. Trend harian (untuk chart dashboard)
@@ -713,6 +926,17 @@ FROM detection_logs dl
 WHERE dl.created_at >= NOW() - INTERVAL '30 days'
 GROUP BY DATE(dl.created_at)
 ORDER BY detection_date DESC;
+
+-- 6. Ringkasan untuk dashboard: grid per zone_category
+SELECT
+    gc.zone_category,
+    COUNT(*) as total_grids,
+    COUNT(*) FILTER (WHERE gc.status IN ('severe', 'moderate')) as damaged_grids,
+    ROUND(AVG(dl.confidence) FILTER (WHERE dl.confidence IS NOT NULL), 4) as avg_confidence
+FROM grid_cells gc
+LEFT JOIN detection_logs dl ON gc.last_detection_id = dl.id
+GROUP BY gc.zone_category
+ORDER BY damaged_grids DESC;
 ```
 
 ---
@@ -746,11 +970,11 @@ ORDER BY detection_date DESC;
 └────────────────────────────────────────────────────────────┘
 ```
 
-### FASE 1: Integrasi Google Earth Engine (Hari 3-4)
+### FASE 1: Integrasi Google Earth Engine & Data Pemerintah (Hari 3-5)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ 🛰 FASE 1 — DATA AKUISISI & GRID GENERATION              │
+│ 🛰 FASE 1 — DATA AKUISISI + GIS OVERLAY PEMERINTAH       │
 ├────────────────────────────────────────────────────────────┤
 │                                                             │
 │ [ ] Setup akun GEE & autentikasi (service account)          │
@@ -761,10 +985,21 @@ ORDER BY detection_date DESC;
 │ [ ] Simpan metadata ke tabel satellite_imagery              │
 │ [ ] Simpan grid ke tabel grid_cells (PostGIS)               │
 │ [ ] Integrasi dengan Redis Queue untuk trigger ML           │
+│ [ ]                                                     │
+│ [ ] 🆕 GIS OVERLAY ENGINE:                               │
+│ [ ] Setup koneksi ke API KLHK (SIGAP Geoportal)            │
+│     → https://geoportal.menlhk.go.id/server/rest/services  │
+│ [ ] Setup koneksi ke API BIG (Satupeta)                    │
+│     → https://kspservices.big.go.id/satupeta/rest/services │
+│ [ ] Pull data Penetapan Kawasan Hutan (layer 0)            │
+│ [ ] Implementasi spatial join: grid_cells → forest_zones  │
+│ [ ] Klasifikasi fungsitap: HL/HP/HPT/HPK/HK ke kategori   │
+│ [ ] Simpan ke tabel forest_zones & update grid_cells       │
 │                                                             │
 │ Deliverable: ✅ Citra satelit sukses ditarik               │
-│              ✅ Grid berhasil dibuat & tersimpan di PostGIS │
-│              ✅ Queue trigger ke ML container berfungsi      │
+│              ✅ Grid + data kawasan hutan siap di PostGIS   │
+│              ✅ Spatial join: tiap grid tahu status legalnya│
+│              ✅ Queue trigger ke ML container berfungsi     │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -970,6 +1205,17 @@ deforest.id/
 │   │   │   └── models.py            # Pydantic models
 │   │   └── config.py
 │   │
+│   ├── gis-overlay/                # 🆕 DATA PEMERINTAH
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       ├── main.py              # Entry point — scheduler
+│   │       ├── klhk_client.py       # KLHK SIGAP API client
+│   │       ├── big_client.py        # BIG Satupeta API client
+│   │       ├── spatial_joiner.py    # ST_Intersects grid → zone
+│   │       ├── classifier.py        # fungsitap → category mapper
+│   │       └── models.py            # Pydantic models
+│   │
 │   ├── ml-inference/
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
@@ -1046,15 +1292,17 @@ deforest.id/
 ├── database/
 │   ├── migrations/
 │   │   ├── 001_create_enums.sql
-│   │   ├── 002_create_grid_cells.sql
-│   │   ├── 003_create_satellite_imagery.sql
-│   │   ├── 004_create_detection_logs.sql
-│   │   ├── 005_create_alerts.sql
-│   │   ├── 006_create_notification_logs.sql
-│   │   ├── 007_create_config.sql
-│   │   └── 008_create_triggers.sql
+│   │   ├── 002_create_forest_zones.sql       # 🆕 Data kawasan hutan pemerintah
+│   │   ├── 003_create_grid_cells.sql
+│   │   ├── 004_create_satellite_imagery.sql
+│   │   ├── 005_create_detection_logs.sql
+│   │   ├── 006_create_alerts.sql
+│   │   ├── 007_create_notification_logs.sql
+│   │   ├── 008_create_config.sql
+│   │   └── 009_create_legal_triggers.sql     # 🆕 Trigger legal-aware
 │   └── seeds/
-│       └── seed_demo_data.sql
+│       ├── seed_demo_data.sql
+│       └── seed_forest_zones_kalsel.sql      # 🆕 Sample data kawasan
 │
 └── docs/
     ├── planning.md
@@ -1103,7 +1351,11 @@ deforest.id/
 - **Baileys (WA Web)**: https://github.com/WhiskeySockets/Baileys
 - **Redis**: https://redis.io
 - **Docker Compose**: https://docs.docker.com/compose
-- **Proxmox VE**: https://www.proxmox.com
+- **KLHK Geoportal (SIGAP)**: https://geoportal.menlhk.go.id
+- **BIG Satupeta (One Map Policy)**: https://satupeta.big.go.id
+- **UU No. 41 Tahun 1999 tentang Kehutanan**: https://peraturan.bpk.go.id
+- **Permen LHK No. 7 Tahun 2021**: https://peraturan.bpk.go.id
+- **EU Deforestation Regulation (EUDR)**: https://environment.ec.europa.eu
 
 ---
 
