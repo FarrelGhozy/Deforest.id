@@ -1,89 +1,101 @@
-"""Generate pseudo-labels from NDVI threshold for U-Net training.
-
-Usage:
-    python scripts/generate_labels.py \
-        --chips-dir services/gee-export/src/data/training/unet/chips \
-        --labels-dir services/gee-export/src/data/training/unet/labels_ndvi \
-        --ndvi-threshold 0.25 \
-        --ignore-low 0.15
-"""
-
 import argparse
-import numpy as np
+import re
 from pathlib import Path
+
+import cv2
+import numpy as np
 from tqdm import tqdm
 
 
-def ndvi_to_mask(ndvi: np.ndarray, threshold: float = 0.25, ignore_low: float = 0.15) -> np.ndarray:
-    """Convert NDVI array to binary segmentation mask.
+def compute_ndvi_change(ndvi_t1: np.ndarray, ndvi_t2: np.ndarray,
+                        threshold: float = -0.15) -> np.ndarray:
+    change = ndvi_t2 - ndvi_t1
+    return (change < threshold).astype(np.uint8)
 
-    0 = forest (NDVI >= threshold)
-    1 = deforest (NDVI < ignore_low)
-    255 = uncertain / ignore (ignore_low <= NDVI < threshold)
 
-    The ignore band helps the model focus on confident regions.
-    """
-    mask = np.full(ndvi.shape, 255, dtype=np.uint8)
-    mask[ndvi >= threshold] = 0
-    mask[ndvi < ignore_low] = 1
-    return mask
+def apply_morphology(mask: np.ndarray, kernel_size: int = 5,
+                     min_area: int = 64) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel)
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
+    for i in range(1, num_labels):
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            cleaned[labels == i] = 0
+
+    return cleaned
+
+
+CHIP_PATTERN = re.compile(
+    r'(?P<scene>.+?)_(?P<label>baseline|deforest)_(?P<row>\d+)_(?P<col>\d+)\.npz$'
+)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate U-Net masks from NDVI")
-    parser.add_argument("--chips-dir", required=True, help="Directory with .npz chip files")
-    parser.add_argument("--labels-dir", required=True, help="Output directory for mask .npy files")
-    parser.add_argument("--ndvi-threshold", type=float, default=0.25, help="NDVI threshold for forest (>=) vs uncertain")
-    parser.add_argument("--ignore-low", type=float, default=0.15, help="NDVI below this = confident deforest")
-    parser.add_argument("--key", default="ndvi", help="Key in npz file holding NDVI array")
+    parser = argparse.ArgumentParser(description='Generate NDVI-based pseudo-labels')
+    parser.add_argument('--chips-dir', required=True, type=Path,
+                        help='Path to chips directory containing .npz files')
+    parser.add_argument('--labels-dir', required=True, type=Path,
+                        help='Path to output labels directory')
+    parser.add_argument('--threshold', type=float, default=-0.15,
+                        help='NDVI change threshold (default: -0.15)')
+    parser.add_argument('--kernel-size', type=int, default=5,
+                        help='Morphological kernel size (default: 5)')
+    parser.add_argument('--min-area', type=int, default=64,
+                        help='Minimum connected component area (default: 64)')
     args = parser.parse_args()
 
-    chips_path = Path(args.chips_dir)
-    labels_path = Path(args.labels_dir)
-    labels_path.mkdir(parents=True, exist_ok=True)
+    chips_dir = args.chips_dir.resolve()
+    labels_dir = args.labels_dir.resolve()
+    labels_dir.mkdir(parents=True, exist_ok=True)
 
-    npz_files = sorted(chips_path.glob("*.npz"))
-    if not npz_files:
-        print(f"No .npz files found in {chips_path}")
-        return
+    chip_files = sorted(chips_dir.glob("*.npz"))
 
-    print(f"Found {len(npz_files)} chips")
-    print(f"Threshold: NDVI >= {args.ndvi_threshold} → forest (0)")
-    print(f"           NDVI <  {args.ignore_low} → deforest (1)")
-    print(f"           {args.ignore_low} <= NDVI < {args.ndvi_threshold} → ignore (255)")
+    baseline_map = {}
+    deforest_map = {}
 
-    stats = {"deforest": 0, "forest": 0, "mixed": 0, "ignore": 0}
-
-    for npz_path in tqdm(npz_files, desc="Generating masks"):
-        data = np.load(npz_path)
-        ndvi = data[args.key]
-        mask = ndvi_to_mask(ndvi, args.ndvi_threshold, args.ignore_low)
-
-        stem = npz_path.stem
-        out_path = labels_path / f"{stem}_mask.npy"
-        np.save(out_path, mask)
-
-        unique, counts = np.unique(mask, return_counts=True)
-        counts_map = dict(zip(unique, counts))
-
-        def_pct = counts_map.get(1, 0) / mask.size * 100
-        for_pct = counts_map.get(0, 0) / mask.size * 100
-        ign_pct = counts_map.get(255, 0) / mask.size * 100
-
-        if def_pct > 50:
-            stats["deforest"] += 1
-        elif for_pct > 50:
-            stats["forest"] += 1
+    for f in chip_files:
+        m = CHIP_PATTERN.match(f.name)
+        if not m:
+            continue
+        key = (m.group('scene'), int(m.group('row')), int(m.group('col')))
+        if m.group('label') == 'baseline':
+            baseline_map[key] = f
         else:
-            stats["mixed"] += 1
-        if ign_pct > 30:
-            stats["ignore"] += 1
+            deforest_map[key] = f
 
-    print(f"\nDone. {len(npz_files)} masks generated.")
-    print(f"  Mostly deforest (>50% pixels): {stats['deforest']}")
-    print(f"  Mostly forest (>50% pixels):   {stats['forest']}")
-    print(f"  Mixed:                         {stats['mixed']}")
-    print(f"  High ignore (>30% pixels):     {stats['ignore']}")
+    matched = 0
+    skipped = 0
+
+    for key, f_baseline in tqdm(baseline_map.items(), desc="Generating labels"):
+        f_deforest = deforest_map.get(key)
+        if f_deforest is None:
+            skipped += 1
+            continue
+
+        t1 = np.load(f_baseline)
+        t2 = np.load(f_deforest)
+
+        mask = compute_ndvi_change(t1["ndvi"], t2["ndvi"], args.threshold)
+        mask = apply_morphology(mask, args.kernel_size, args.min_area)
+
+        out_name = f_baseline.stem.replace("baseline", "deforest") + "_mask.npz"
+        out_path = labels_dir / out_name
+
+        np.savez_compressed(
+            out_path,
+            mask=mask,
+            rgb=t1["rgb"],
+            ndvi_baseline=t1["ndvi"],
+            ndvi_deforest=t2["ndvi"],
+            bounds=t1["bounds"],
+            scene_baseline=f_baseline.name,
+            scene_deforest=f_deforest.name,
+        )
+        matched += 1
+
+    print(f"\nDone: {matched} masks generated, {skipped} skipped (no matching deforest chip)")
 
 
 if __name__ == "__main__":

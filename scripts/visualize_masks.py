@@ -1,91 +1,83 @@
-"""Visualize random chips with mask overlay to validate labels.
-
-Usage:
-    python scripts/visualize_masks.py \
-        --chips-dir services/gee-export/src/data/training/unet/chips \
-        --labels-dir services/gee-export/src/data/training/unet/labels_ndvi \
-        --num-samples 9 \
-        --output preview_masks.png
-"""
-
 import argparse
-import numpy as np
 from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
 
 
-def overlay_mask(rgb: np.ndarray, mask: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    """Overlay binary mask on RGB image.
+def load_chip(path: Path):
+    data = np.load(path)
+    rgb = np.transpose(data["rgb"], (1, 2, 0)).astype(np.uint8)
+    return rgb, data
 
-    rgb: (C, H, W) or (H, W, C) uint8
-    mask: (H, W) uint8 with 0=forest, 1=deforest, 255=ignore
-    """
-    if rgb.shape[0] == 3:
-        rgb = rgb.transpose(1, 2, 0)
 
-    overlay = rgb.copy().astype(float)
-
-    # Deforest = red tint
-    overlay[mask == 1] = overlay[mask == 1] * (1 - alpha) + np.array([255, 0, 0]) * alpha
-    # Ignore = gray tint
-    overlay[mask == 255] = overlay[mask == 255] * (1 - alpha * 0.5) + np.array([128, 128, 128]) * alpha * 0.5
-
-    return overlay.clip(0, 255).astype(np.uint8)
+def make_overlay(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    overlay = rgb.copy().astype(np.float32)
+    mask_bool = mask > 0
+    overlay[..., 0][mask_bool] = overlay[..., 0][mask_bool] * 0.3 + 200 * 0.7
+    return np.clip(overlay, 0, 255).astype(np.uint8)
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--chips-dir", required=True)
-    parser.add_argument("--labels-dir", required=True)
-    parser.add_argument("--num-samples", type=int, default=9)
-    parser.add_argument("--output", default="preview_masks.png")
+    parser = argparse.ArgumentParser(description='Visualize generated masks')
+    parser.add_argument('--chips-dir', required=True, type=Path,
+                        help='Path to chips directory')
+    parser.add_argument('--labels-dir', required=True, type=Path,
+                        help='Path to labels directory with _mask.npz files')
+    parser.add_argument('--output', default='preview.png', type=Path,
+                        help='Output preview image path')
+    parser.add_argument('--samples', type=int, default=16,
+                        help='Number of samples to visualize (default: 16)')
     args = parser.parse_args()
 
-    chips_path = Path(args.chips_dir)
-    labels_path = Path(args.labels_dir)
+    chips_dir = args.chips_dir.resolve()
+    labels_dir = args.labels_dir.resolve()
 
-    npz_files = sorted(chips_path.glob("*.npz"))
-    np.random.shuffle(npz_files)
+    mask_files = sorted(labels_dir.glob("*_mask.npz"))
+    if not mask_files:
+        print("No mask files found in", labels_dir)
+        return
 
-    samples = npz_files[:args.num_samples]
-    n = len(samples)
-    cols = int(np.ceil(np.sqrt(n)))
-    rows = int(np.ceil(n / cols))
+    samples = min(args.samples, len(mask_files))
+    mask_files = mask_files[:samples]
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 4))
-    axes = axes.flatten() if n > 1 else [axes]
+    cols = 4
+    rows = int(np.ceil(samples / cols))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 5))
+    axes = axes.flatten() if rows * cols > 1 else [axes]
 
-    for i, npz_path in enumerate(samples):
-        data = np.load(npz_path)
-        rgb = data["rgb"]
-        ndvi = data["ndvi"]
+    for i, mask_path in enumerate(tqdm(mask_files, desc="Rendering")):
+        mask_data = np.load(mask_path)
+        mask = mask_data["mask"]
 
-        stem = npz_path.stem
-        mask_path = labels_path / f"{stem}_mask.npy"
-        if mask_path.exists():
-            mask = np.load(mask_path)
+        chip_name = mask_data.get("scene_baseline", mask_path.name)
+        chip_path = chips_dir / chip_name
+
+        if chip_path.exists():
+            rgb, _ = load_chip(chip_path)
+        elif "deforest" in chip_name:
+            chip_path = chips_dir / chip_name.replace("deforest", "baseline")
+            if chip_path.exists():
+                rgb, _ = load_chip(chip_path)
+            else:
+                rgb = np.zeros((64, 64, 3), dtype=np.uint8)
         else:
-            mask = np.full((64, 64), 255, dtype=np.uint8)
+            rgb = np.zeros((64, 64, 3), dtype=np.uint8)
 
-        # Side-by-side: original, mask only, overlay
-        overlay = overlay_mask(rgb, mask)
+        overlay = make_overlay(rgb, mask)
 
-        combined = np.hstack([
-            rgb.transpose(1, 2, 0),
-            np.stack([mask * 85] * 3, axis=-1).astype(np.uint8),
-            overlay,
-        ])
+        ax = axes[i]
+        ax.imshow(overlay)
+        area_pct = mask.sum() / mask.size * 100
+        ax.set_title(f"{mask_path.stem[:20]}... ({area_pct:.1f}%)", fontsize=8)
+        ax.axis("off")
 
-        axes[i].imshow(combined)
-        axes[i].set_title(f"{stem[:30]}... NDVI={ndvi.mean():.2f}", fontsize=8)
-        axes[i].axis("off")
-
-    # Hide unused subplots
-    for i in range(n, len(axes)):
-        axes[i].axis("off")
+    for j in range(i + 1, len(axes)):
+        axes[j].axis("off")
 
     plt.tight_layout()
-    plt.savefig(args.output, dpi=150, bbox_inches="tight")
+    plt.savefig(str(args.output), dpi=150, bbox_inches="tight")
     print(f"Preview saved to {args.output}")
 
 
