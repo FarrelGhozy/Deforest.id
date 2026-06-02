@@ -51,6 +51,14 @@ def load_mask_data(path: Path):
     }
 
 
+def upscale_nn(img: np.ndarray, scale: int = 7) -> np.ndarray:
+    """Upscale with nearest-neighbor — tajam, gak buram."""
+    h, w = img.shape[:2]
+    if img.ndim == 2:
+        return cv2.resize(img, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
+    return cv2.resize(img, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
+
+
 def make_overlay(rgb: np.ndarray, mask: np.ndarray, alpha: float = 0.6) -> np.ndarray:
     overlay = rgb.copy().astype(np.float32)
     mask_bool = mask > 0
@@ -172,19 +180,20 @@ if filter_val:
         st.session_state.idx = filtered_indices[0]
         st.rerun()
 
-# ── Image display ───────────────────────────────────────────
+# ── Image display — nearest-neighbor upscaled ───────────────
 
 st.subheader(f"`{mask_path.stem[:60]}` — {current_idx+1}/{total}")
 
+overlay = make_overlay(rgb, mask)
+
 img_cols = st.columns(3)
 with img_cols[0]:
-    st.caption(":frame_photo: RGB Original")
-    st.image(rgb, use_container_width=True)
+    st.caption(":frame_photo: RGB Original (7× upscaled, nearest-neighbor)")
+    st.image(upscale_nn(rgb, 7), width=448)
     st.caption(f"Scene: {data['scene_t1'][:60]}")
 with img_cols[1]:
-    st.caption(":cinema: Mask Overlay")
-    overlay = make_overlay(rgb, mask)
-    st.image(overlay, use_container_width=True)
+    st.caption(":cinema: Mask Overlay (7× upscaled)")
+    st.image(upscale_nn(overlay, 7), width=448)
     st.caption(f"Deforest area: **{area_pct:.1f}%** | `{mask_path.name}`")
 with img_cols[2]:
     st.caption(":bar_chart: NDVI Change (baseline :arrow_right: deforest)")
@@ -196,9 +205,9 @@ with img_cols[2]:
     }
     st.json(fig_data)
     if ndvi is not None:
-        ndvi_disp = (ndvi * 0.5 + 0.5).clip(0, 1)  # normalize for display
-        st.image((ndvi_disp * 255).astype(np.uint8), use_container_width=True, clamp=True)
-        st.caption(f":chart_with_downwards_trend: NDVI change (red = drop)")
+        ndvi_disp = (ndvi * 0.5 + 0.5).clip(0, 1)
+        st.image(upscale_nn((ndvi_disp * 255).astype(np.uint8), 7), width=448)
+        st.caption(f":chart_with_downwards_trend: NDVI change (red = NDVI drop)")
 
 # ── Threshold re-gen ────────────────────────────────────────
 
@@ -215,10 +224,10 @@ with st.expander(":control_knobs: Regenerate with different threshold", expanded
 
             pre_a, pre_b = st.columns(2)
             with pre_a:
-                st.image(make_overlay(rgb, new_mask), use_container_width=True)
+                st.image(upscale_nn(make_overlay(rgb, new_mask), 7), width=448)
                 st.caption(f"New: {new_mask.sum()/new_mask.size*100:.1f}%")
             with pre_b:
-                st.image(overlay, use_container_width=True)
+                st.image(upscale_nn(overlay, 7), width=448)
                 st.caption(f"Original: {area_pct:.1f}%")
 
             if st.button(":floppy_disk: Save this version as correction", use_container_width=True):
@@ -255,11 +264,14 @@ with st.expander(":pencil2: Manual pixel correction", expanded=False):
     rgb_list = rgb.tolist()
     mask_list_json = current_mask.tolist()
 
+    # Upscale canvas size: 448px = 7x per pixel
+    CANVAS_SIZE = 448
+    SCALE = 7
     canvas_html = f"""
     <div style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;">
       <div>
-        <canvas id="c" width="320" height="320"
-          style="border:1px solid #555;border-radius:8px;cursor:crosshair;image-rendering:pixelated;"></canvas>
+        <canvas id="c" width="{CANVAS_SIZE}" height="{CANVAS_SIZE}"
+          style="border:2px solid #555;border-radius:8px;cursor:crosshair;image-rendering:pixelated;"></canvas>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
           <button id="btn-paint" class="active" onclick="setMode('paint')"
             style="padding:4px 16px;border-radius:4px;border:1px solid #555;cursor:pointer;">Add</button>
@@ -271,16 +283,17 @@ with st.expander(":pencil2: Manual pixel correction", expanded=False):
             style="padding:4px 16px;border-radius:4px;border:1px solid #555;cursor:pointer;">Reset</button>
         </div>
       </div>
-      <canvas id="preview" width="320" height="320"
-        style="border:1px solid #555;border-radius:8px;image-rendering:pixelated;"></canvas>
+      <canvas id="preview" width="{CANVAS_SIZE}" height="{CANVAS_SIZE}"
+        style="border:2px solid #555;border-radius:8px;image-rendering:pixelated;"></canvas>
     </div>
     <div id="status"></div>
     <script>
+    const CANVAS = {CANVAS_SIZE};
+    const SCALE = {SCALE};
     const canvas = document.getElementById('c');
     const preview = document.getElementById('preview');
     const ctx = canvas.getContext('2d');
     const pctx = preview.getContext('2d');
-    const SCALE = 5;
     const rgbSrc = {json.dumps(rgb_list)};
     let mask = {json.dumps(mask_list_json)};
     let mode = 'paint';
@@ -288,14 +301,14 @@ with st.expander(":pencil2: Manual pixel correction", expanded=False):
     const bs = {brush_size};
 
     function drawCanvas() {{
-      const imgData = ctx.createImageData(320, 320);
+      const imgData = ctx.createImageData(CANVAS, CANVAS);
       for (let y = 0; y < 64; y++) {{
         for (let x = 0; x < 64; x++) {{
           const r = rgbSrc[y][x][0], g = rgbSrc[y][x][1], b = rgbSrc[y][x][2];
           const m = mask[y][x] > 0;
           for (let dy = 0; dy < SCALE; dy++) {{
             for (let dx = 0; dx < SCALE; dx++) {{
-              const px = ((y * SCALE + dy) * 320 + (x * SCALE + dx)) * 4;
+              const px = ((y * SCALE + dy) * CANVAS + (x * SCALE + dx)) * 4;
               if (m) {{
                 imgData.data[px] = r * 0.3 + 220 * 0.7;
                 imgData.data[px+1] = g * 0.3;
@@ -310,13 +323,13 @@ with st.expander(":pencil2: Manual pixel correction", expanded=False):
       }}
       ctx.putImageData(imgData, 0, 0);
 
-      const pData = pctx.createImageData(320, 320);
+      const pData = pctx.createImageData(CANVAS, CANVAS);
       for (let y = 0; y < 64; y++) {{
         for (let x = 0; x < 64; x++) {{
           const v = mask[y][x] > 0 ? 255 : 0;
           for (let dy = 0; dy < SCALE; dy++) {{
             for (let dx = 0; dx < SCALE; dx++) {{
-              const px = ((y * SCALE + dy) * 320 + (x * SCALE + dx)) * 4;
+              const px = ((y * SCALE + dy) * CANVAS + (x * SCALE + dx)) * 4;
               pData.data[px] = v; pData.data[px+1] = 0; pData.data[px+2] = 0;
               pData.data[px+3] = 255;
             }}
