@@ -38,9 +38,13 @@ def load_mask_data(path: Path):
     rgb = np.transpose(data["rgb"], (1, 2, 0)).astype(np.uint8)
     ndvi_t1 = data.get("ndvi_t1", data.get("ndvi_baseline", None))
     ndvi_t2 = data.get("ndvi_t2", data.get("ndvi_deforest", None))
+    cloud_mask = data.get("cloud_mask", None)
+    if cloud_mask is not None:
+        cloud_mask = cloud_mask.astype(np.uint8)
     return {
         "mask": mask,
         "rgb": rgb,
+        "cloud_mask": cloud_mask,
         "ndvi_t1": ndvi_t1,
         "ndvi_t2": ndvi_t2,
         "ndvi_change": ndvi_t2 - ndvi_t1 if ndvi_t1 is not None and ndvi_t2 is not None else None,
@@ -59,12 +63,32 @@ def upscale_nn(img: np.ndarray, scale: int = 7) -> np.ndarray:
     return cv2.resize(img, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
 
 
+IGNORE_LABEL = 255
+CLOUD_OVERLAY_ALPHA = 0.5
+
+
 def make_overlay(rgb: np.ndarray, mask: np.ndarray, alpha: float = 0.6) -> np.ndarray:
     overlay = rgb.copy().astype(np.float32)
-    mask_bool = mask > 0
+    ignore = mask == IGNORE_LABEL
+    mask_bool = mask == 1
+    mask_or_ignore = mask_bool | ignore
+
     overlay[..., 0][mask_bool] = overlay[..., 0][mask_bool] * (1 - alpha) + 220 * alpha
     overlay[..., 1][mask_bool] = overlay[..., 1][mask_bool] * (1 - alpha)
     overlay[..., 2][mask_bool] = overlay[..., 2][mask_bool] * (1 - alpha)
+
+    overlay[..., 0][ignore] = overlay[..., 0][ignore] * (1 - CLOUD_OVERLAY_ALPHA)
+    overlay[..., 1][ignore] = overlay[..., 1][ignore] * (1 - CLOUD_OVERLAY_ALPHA)
+    overlay[..., 2][ignore] = overlay[..., 2][ignore] * (1 - CLOUD_OVERLAY_ALPHA) + 200 * CLOUD_OVERLAY_ALPHA
+    return np.clip(overlay, 0, 255).astype(np.uint8)
+
+
+def make_cloud_overlay(rgb: np.ndarray, cloud_mask: np.ndarray, alpha: float = 0.5) -> np.ndarray:
+    overlay = rgb.copy().astype(np.float32)
+    cloud_bool = cloud_mask > 0
+    overlay[..., 0][cloud_bool] = overlay[..., 0][cloud_bool] * (1 - alpha)
+    overlay[..., 1][cloud_bool] = overlay[..., 1][cloud_bool] * (1 - alpha)
+    overlay[..., 2][cloud_bool] = overlay[..., 2][cloud_bool] * (1 - alpha) + 200 * alpha
     return np.clip(overlay, 0, 255).astype(np.uint8)
 
 
@@ -167,7 +191,10 @@ mask_path = mask_list[current_idx]
 data = load_mask_data(mask_path)
 mask = data["mask"]
 rgb = data["rgb"]
-area_pct = mask.sum() / mask.size * 100
+area_pct = (mask == 1).sum() / mask.size * 100
+ignore_pct = (mask == 255).sum() / mask.size * 100
+cloud_mask = data.get("cloud_mask", None)
+cloud_pct = float(cloud_mask.mean() * 100) if cloud_mask is not None else 0.0
 ndvi = data["ndvi_change"]
 
 # Filter jump (if someone typed a filter name)
@@ -182,19 +209,30 @@ if filter_val:
 
 # ── Image display — nearest-neighbor upscaled ───────────────
 
-st.subheader(f"`{mask_path.stem[:60]}` — {current_idx+1}/{total}")
+title_right = f"  |  :cloud: Cloud {cloud_pct:.1f}%" if cloud_pct > 0 else ""
+st.subheader(f"`{mask_path.stem[:60]}` — {current_idx+1}/{total}{title_right}")
 
 overlay = make_overlay(rgb, mask)
+cloud_overlay = make_cloud_overlay(rgb, cloud_mask) if cloud_mask is not None else rgb
 
 img_cols = st.columns(3)
 with img_cols[0]:
-    st.caption(":frame_photo: RGB Original (7× upscaled, nearest-neighbor)")
-    st.image(upscale_nn(rgb, 7), width=448)
-    st.caption(f"Scene: {data['scene_t1'][:60]}")
+    st.caption(":frame_photo: RGB Original (7×)")
+    if cloud_pct > 0:
+        st.image(upscale_nn(cloud_overlay, 7), width=448)
+        st.caption(f":cloud: **Cloud {cloud_pct:.1f}%** (blue overlay)")
+    else:
+        st.image(upscale_nn(rgb, 7), width=448)
+        st.caption(":white_check_mark: No cloud detected")
 with img_cols[1]:
     st.caption(":cinema: Mask Overlay (7× upscaled)")
     st.image(upscale_nn(overlay, 7), width=448)
-    st.caption(f"Deforest area: **{area_pct:.1f}%** | `{mask_path.name}`")
+    cap = f"Deforest: **{area_pct:.1f}%** | "
+    if ignore_pct > 0:
+        cap += f":cloud: Ignored (cloud): **{ignore_pct:.1f}%**"
+    else:
+        cap += "No cloud ignored"
+    st.caption(cap + f" | `{mask_path.name}`")
 with img_cols[2]:
     st.caption(":bar_chart: NDVI Change (baseline :arrow_right: deforest)")
     fig_data = {
@@ -202,6 +240,7 @@ with img_cols[2]:
         "ndvi_mean_t2": float(data["ndvi_t2"].mean()) if data["ndvi_t2"] is not None else 0,
         "ndvi_delta": float(ndvi.mean()) if ndvi is not None else 0,
         "area_pct": area_pct,
+        "cloud_pct": cloud_pct,
     }
     st.json(fig_data)
     if ndvi is not None:
@@ -231,16 +270,18 @@ with st.expander(":control_knobs: Regenerate with different threshold", expanded
                 st.caption(f"Original: {area_pct:.1f}%")
 
             if st.button(":floppy_disk: Save this version as correction", use_container_width=True):
-                np.savez_compressed(
-                    mask_path,
-                    mask=new_mask,
-                    rgb=data.get("rgb_raw", np.transpose(rgb, (2, 0, 1))),
-                    ndvi_t1=data["ndvi_t1"],
-                    ndvi_t2=data["ndvi_t2"],
-                    bounds=data["bounds"],
-                    scene_t1=data["scene_t1"],
-                    scene_t2=data["scene_t2"],
-                )
+                save_kwargs = {
+                    "mask": new_mask,
+                    "rgb": data.get("rgb_raw", np.transpose(rgb, (2, 0, 1))),
+                    "ndvi_t1": data["ndvi_t1"],
+                    "ndvi_t2": data["ndvi_t2"],
+                    "bounds": data["bounds"],
+                    "scene_t1": data["scene_t1"],
+                    "scene_t2": data["scene_t2"],
+                }
+                if data["cloud_mask"] is not None:
+                    save_kwargs["cloud_mask"] = data["cloud_mask"]
+                np.savez_compressed(mask_path, **save_kwargs)
                 st.success(f"Saved! New area: {new_mask.sum()/new_mask.size*100:.1f}%")
                 st.session_state.edited_mask = None
                 st.rerun()
@@ -402,8 +443,9 @@ with st.expander(":pencil2: Manual pixel correction", expanded=False):
     with col_c:
         # Show stats of edited mask
         if st.session_state.edited_mask is not None:
-            new_area = st.session_state.edited_mask.sum() / st.session_state.edited_mask.size * 100
-            diff_px = int(np.abs(st.session_state.edited_mask.astype(int) - mask.astype(int)).sum())
+            em = st.session_state.edited_mask
+            new_area = (em == 1).sum() / em.size * 100
+            diff_px = int(np.abs(em.astype(int) - mask.astype(int)).sum())
             st.caption(f"Edited: {new_area:.1f}% deforest | {diff_px} pixels changed")
 
 # ── Review actions ──────────────────────────────────────────
