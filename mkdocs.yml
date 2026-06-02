@@ -33,6 +33,7 @@ nav:
   - Home: index.md
   - Data Format: data-format.md
   - Annotation Pipeline: annotation-pipeline.md
+  - Training Pipeline: training-pipeline.md
   - Getting Started: getting-started.md
 
 markdown_extensions:

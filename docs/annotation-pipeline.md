@@ -12,7 +12,7 @@ flowchart LR
     B --> C[.npz tiles]
     C --> D[ndvi_annotator.py]
     D --> E[Mask Auto]
-    E --> F[visualizer.py]
+    E --> F[reviewer.py]
     F --> G[Mask Refined]
     G --> H[exporter.py]
     H --> I[PNG train/val]
@@ -41,6 +41,10 @@ Output: `.npz` files di `data/annotation/tiles/`.
 
 Menghitung NDVI difference antara T1 dan T2, thresholding, morphological cleanup.
 
+Dua cara:
+
+### a. Via annotation-pipeline (512px tiles)
+
 ```bash
 uv run python run.py annotate kalimantan_2025_01_15 kalimantan_2025_06_20
 ```
@@ -54,22 +58,67 @@ Parameter:
 
 Output: `.npz` dengan mask + rgb di `data/annotation/masks_auto/`.
 
-## 3. Visualize & Refine
+### b. Via scripts/generate_labels.py (64×64 chips)
 
-Streamlit UI untuk review dan refine mask manual.
+Untuk dataset yang sudah di-tile 64×64:
 
 ```bash
-uv run streamlit run visualizer.py
+uv run python scripts/generate_labels.py \
+  --chips-dir data/training/unet/chips \
+  --labels-dir data/training/unet/labels_ndvi \
+  --threshold -0.15 --kernel-size 5 --min-area 64
 ```
 
-Fitur:
-- Pilih tile dari dropdown
-- Lihat RGB vs overlay mask
-- Add/erase area deforestasi
-- Confirm mask atau skip
-- Progress tracking
+Output: `.npz` mask files di `--labels-dir`.
 
-## 4. Export Training Set
+## 3. Review & Refine (Streamlit)
+
+Streamlit UI untuk review mask NDVI — lihat RGB, overlay, NDVI change, lalu accept/reject/refine.
+
+```bash
+uv run streamlit run services/annotation-pipeline/reviewer.py
+```
+
+### Fitur
+
+| Fitur | Fungsi |
+|-------|--------|
+| **3-panel view** | RGB asli, mask overlay, NDVI change |
+| **Navigation** | Prev / Next / jump ke index — + filter nama file |
+| **Accept / Reject / Needs Fix** | Simpan status review per mask |
+| **Threshold re-gen** | Geser slider NDVI threshold → preview langsung |
+| **Pixel brush** | Canvas interaktif — Add / Erase / Toggle mode |
+| **Notes** | Tiap mask bisa dikasih komentar |
+| **Export** | Statistik + daftar rejected mask |
+
+### Keyboard Shortcuts
+
+| Tombol | Aksi |
+|--------|------|
+| `←` / `→` | Prev / Next |
+| `A` | Accept |
+| `R` | Reject |
+| `F` | Needs Fix |
+
+### Output
+
+Review progress tersimpan otomatis di `data/training/unet/review_progress.json`.
+
+## 4. Split Dataset
+
+Sebelum training, split dataset ke train/val/test:
+
+```bash
+uv run python scripts/split_dataset.py \
+  --chips-dir data/training/unet/chips \
+  --labels-dir data/training/unet/labels_ndvi \
+  --output-dir data/training/unet \
+  --train-ratio 0.70 --val-ratio 0.15 --test-ratio 0.15
+```
+
+Split per-scene (stratified) untuk mencegah data leakage.
+
+## 5. Export Training Set
 
 Export image + mask PNG pairs siap training U-Net.
 

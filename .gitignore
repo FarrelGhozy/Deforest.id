@@ -65,3 +65,5 @@ Desktop.ini
 
 # --- Docker ---
 .docker/
+preview_*.png
+preview.png

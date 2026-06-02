@@ -23,8 +23,9 @@ st.set_page_config(
 
 # ── Config ──────────────────────────────────────────────────
 
-MASKS_DIR = Path("data/annotation/masks_auto")
-REVIEW_FILE = Path("data/annotation/review_progress.json")
+MASKS_DIR = Path("data/training/unet/labels_ndvi")
+CHIPS_DIR = Path("data/training/unet/chips")
+REVIEW_FILE = Path("data/training/unet/review_progress.json")
 
 
 def load_mask_list(masks_dir: Path):
