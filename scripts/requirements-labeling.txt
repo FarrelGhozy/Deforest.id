@@ -1,0 +1,5 @@
+# uv: pip install -r requirements-labeling.txt
+numpy>=1.24
+tqdm>=4.64
+scikit-learn>=1.2
+matplotlib>=3.7

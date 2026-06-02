@@ -1,0 +1,6 @@
+# uv: pip install -r requirements-training.txt
+torch>=2.0
+numpy>=1.24
+tqdm>=4.64
+scikit-learn>=1.2
+matplotlib>=3.7
