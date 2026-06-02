@@ -18,3 +18,7 @@ dev-dependencies = []
 
 [project.scripts]
 deforest-annotate = "run:main"
+
+[tool.streamlit]
+runner.fastReruns = true
+theme.base = "dark"
