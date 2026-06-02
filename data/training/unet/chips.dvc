@@ -1,0 +1,6 @@
+outs:
+- md5: 43d1eb91a15625791eae0c72457fe6a6.dir
+  size: 1382874281
+  nfiles: 40485
+  hash: md5
+  path: chips
