@@ -73,6 +73,23 @@ def cmd_split(args):
     )
 
 
+def cmd_loss(args):
+    from gee_export import authenticate, export_loss_batch, monitor_tasks
+
+    authenticate()
+    tasks = export_loss_batch(
+        sample_dir=args.sample_dir,
+        prefix=args.prefix,
+        folder=args.folder,
+    )
+
+    if args.wait:
+        monitor_tasks(tasks)
+    else:
+        print(f"\n[INFO] {len(tasks)} task(s) started. "
+              f"Run with --wait to monitor, or check GEE Tasks panel.")
+
+
 def cmd_all(args):
     print("=== Phase 1: GEE Export ===")
     cmd_export(args)
@@ -135,6 +152,13 @@ def build_parser():
     sp.add_argument("--val-ratio", default="0.2")
     sp.add_argument("--seed", default="42")
 
+    # loss
+    lo = sub.add_parser("loss", help="Export Hansen loss mask from GEE")
+    lo.add_argument("--sample-dir", required=True, help="Directory with sample GeoJSONs")
+    lo.add_argument("--prefix", default="hl_sample", help="Output filename prefix")
+    lo.add_argument("--folder", default="deforest_training")
+    lo.add_argument("--wait", action="store_true", help="Monitor until complete")
+
     # all
     al = sub.add_parser("all", help="Run full pipeline end-to-end")
     al.add_argument("--geojson", required=True)
@@ -165,6 +189,7 @@ def main():
         "tile": cmd_tile,
         "label-gfw": cmd_label_gfw,
         "split": cmd_split,
+        "loss": cmd_loss,
         "all": cmd_all,
     }
     commands[args.command](args)

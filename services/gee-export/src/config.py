@@ -5,11 +5,12 @@ from pathlib import Path
 
 @dataclass
 class ExportConfig:
-    gee_project: str = os.getenv("GEE_PROJECT", "deforest-id")
-    gee_credentials: str = os.getenv("GEE_CREDENTIALS", "service_account.json")
+    gee_project: str = os.getenv("GEE_PROJECT", "deforestprojek")
+    gee_credentials: str = os.getenv("GEE_CREDENTIALS", "")
 
     band_order: tuple = ("B2", "B3", "B4", "B8", "QA60")
     rgb_bands: tuple = ("B4", "B3", "B2")
+    red_band: str = "B4"
     nir_band: str = "B8"
     scale: int = 10
     crs: str = "EPSG:4326"

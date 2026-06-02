@@ -124,3 +124,29 @@ def monitor_tasks(tasks: list, check_interval: int = 30):
         if pending:
             time.sleep(check_interval)
     print("[DONE] All exports finished.")
+
+
+def build_loss_image(aoi: ee.Geometry) -> ee.Image:
+    hansen = ee.Image("UMD/hansen/global_forest_change_2023_v1_11")
+    loss = hansen.select("loss")
+    return loss.clip(aoi).updateMask(loss.gt(0)).unmask(0)
+
+
+def export_loss_batch(
+    sample_dir: str,
+    prefix: str = "hl_sample",
+    folder: str = None,
+    scale: int = 30,
+    crs: str = None,
+):
+    sample_dir = Path(sample_dir)
+    tasks = []
+    for geojson_path in sorted(sample_dir.glob("*.geojson")):
+        stem = geojson_path.stem  # e.g. sample_1
+        loss_img = build_loss_image(load_aoi(str(geojson_path)))
+        desc = f"{prefix}_{stem}_loss"
+        task = export_composite(loss_img, desc, load_aoi(str(geojson_path)),
+                                folder=folder, scale=scale, crs=crs)
+        tasks.append({"task": task, "description": desc, "label": "loss"})
+        print(f"[EXPORT] Started loss: {desc}")
+    return tasks

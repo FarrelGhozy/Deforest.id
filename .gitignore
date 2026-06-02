@@ -42,6 +42,7 @@ _thumbs/
 .env.local
 *.tif
 *.tiff
+*.npz
 data/annotation/tiles/
 data/annotation/masks_auto/
 data/annotation/masks_refined/

@@ -35,8 +35,14 @@ def cloud_mask_sentinel2(
 
     idx = band_names.index(qa_band)
     qa = data[idx]
-    cloud = (qa & (1 << 10)) | (qa & (1 << 11))
-    return cloud.astype(bool)
+
+    if np.issubdtype(qa.dtype, np.floating):
+        composite_has_clouds = (qa > 0.5).astype(bool)
+        return composite_has_clouds
+
+    qa_int = qa.astype(np.int32)
+    cloud = (qa_int & (1 << 10)).astype(bool) | (qa_int & (1 << 11)).astype(bool)
+    return cloud
 
 
 def normalize_band(band: np.ndarray) -> np.ndarray:
