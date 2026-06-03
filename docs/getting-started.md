@@ -2,80 +2,154 @@
 
 ## Prerequisites
 
-| Tool | Minimal Versi | Cara Install |
-|------|---------------|--------------|
-| Python | 3.11 | `sudo apt install python3.11` |
-| [uv](https://docs.astral.sh/uv/) | terbaru | `curl -LsSf https://astral.sh/uv/install.sh | sh` |
-| Git | — | `sudo apt install git` |
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (package manager)
+- Git
+- GPU recommended untuk training (CUDA)
 
-## Clone & Setup
+## Setup
 
 ```bash
-git clone git@github.com:FarrelGhozy/Deforest.id.git
-cd Deforest.id/services/annotation-pipeline
-make install
+git clone https://github.com/FarrelGhozy/Deforest.id
+cd Deforest.id
+
+# Install Python deps
+uv sync
 ```
+
+---
 
 ## Pipeline Lengkap
 
-### 1. Farrel — Pull Data dari GEE
+### 1. Data Acquisition (GEE)
 
-Export GeoTIFF dari GEE (lihat [Data Format](data-format.md)) dan taruh di:
+Export Sentinel-2 scenes dari Google Earth Engine. Lihat [Data Format](data-format.md).
 
 ```
 data/annotation/raw/
-├── kalimantan_2025_01_15.tif
-└── kalimantan_2025_06_20.tif
+  hl_sample_1_2020_01_15.tif
+  hl_sample_1_2021_06_01.tif
+  ...
 ```
 
-### 2. Preprocess — Tile & Cloud Mask
+### 2. Preprocess
 
 ```bash
-make preprocess SCENE=data/annotation/raw/kalimantan_2025_01_15.tif
-make preprocess SCENE=data/annotation/raw/kalimantan_2025_06_20.tif
+cd services/annotation-pipeline
+make preprocess
 ```
 
-### 3. Auto-Annotate — NDVI Change Detection
+Cloud masking, tiling 512px → 64px, ekstraksi RGB + NIR + NDVI.
+
+### 3. Auto-Annotate
 
 ```bash
-make annotate T1=kalimantan_2025_01_15 T2=kalimantan_2025_06_20
+make annotate
 ```
 
-### 4. Visualize & Refine (Opsional)
+NDVI change detection → mask deforestasi awal.
+
+Bisa juga langsung via:
 
 ```bash
-make visualize
+uv run python scripts/generate_labels.py \
+  --chips data/training/unet/chips \
+  --baseline-dir data/training/unet/baseline \
+  --output data/training/unet/labels_ndvi
 ```
 
-### 5. Export Training Set
+### 4. Review & Refine
 
 ```bash
-make export
+make visualize  # atau langsung:
+uv run streamlit run services/annotation-pipeline/reviewer.py
 ```
 
-Output siap training di `data/annotation/export/masks_refined/`.
+### 5. Split Dataset
 
-## Cek Status
+```bash
+uv run python scripts/split_dataset.py \
+  --chips data/training/unet/chips \
+  --labels data/training/unet/labels_ndvi \
+  --manifest data/training/unet/manifest.json
+```
+
+### 6. Training U-Net
+
+```bash
+uv run python scripts/train_unet.py \
+  --manifest data/training/unet/manifest.json \
+  --output models/unet_deforest \
+  --epochs 50 \
+  --batch-size 32 \
+  --lr 1e-3
+```
+
+Training log otomatis tersimpan di `models/unet_deforest/train.log`.
+Best model (val IoU tertinggi) di `best.pth`, final model di `final.pth`.
+
+### 7. Inference
+
+```bash
+uv run python scripts/infer_unet.py \
+  --manifest data/training/unet/manifest.json \
+  --model models/unet_deforest/best.pth \
+  --output data/training/unet/predictions \
+  --batch-size 64
+```
+
+Output: `predictions.npy`, `ground_truth.npy`, `metrics.json`.
+
+### 8. Visualisasi
+
+```bash
+uv run python scripts/compare_viz.py \
+  --manifest data/training/unet/manifest.json \
+  --predictions data/training/unet/predictions/predictions.npy \
+  --output data/training/unet/comparisons \
+  --num-samples 50
+```
+
+Menghasilkan 3-panel comparison (RGB / GT / Prediction).
+
+### 9. Review Predictions (Streamlit)
+
+```bash
+uv run streamlit run services/annotation-pipeline/review_predictions.py
+```
+
+Fitur: navigasi per-sample, IoU histogram, error map (TP/FP/FN), metrics dashboard.
+
+---
+
+## Cek Progress
 
 ```bash
 make status
 ```
 
-Output contoh:
+Atau langsung cek direktori:
 
-```
-Raw scenes:     2 files
-Tiles:          312 files
-Auto masks:     312 files
-Refined masks:  89 files
-Export:         178 PNGs
-```
+| Direktori | Isi |
+|-----------|-----|
+| `data/annotation/raw/` | GeoTIFF asli dari GEE |
+| `data/annotation/tiles/` | Tile .npz 512px |
+| `data/annotation/masks_auto/` | Mask auto NDVI |
+| `data/annotation/masks_refined/` | Mask hasil review |
+| `data/annotation/export/` | Training pairs |
+| `data/training/unet/chips/` | Chips 64px |
+| `data/training/unet/labels_ndvi/` | Mask final |
+| `data/training/unet/predictions/` | Hasil inference |
+| `data/training/unet/comparisons/` | Visualisasi |
+| `models/unet_deforest/` | Model .pth files |
+
+---
 
 ## Troubleshooting
 
-| Problem | Solusi |
+| Masalah | Solusi |
 |---------|--------|
-| `uv: command not found` | Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh` |
-| `module 'numpy' has no attribute ...` | `uv sync` ulang |
-| GEE quota exceeded | Turunkan resolusi atau perkecil AOI |
-| Cloud cover terlalu tinggi | Filter scene dengan cloud < 20% |
+| OOM saat training | Turunkan `--batch-size` |
+| NaN loss | Cek normalisasi input (NIR /10000) |
+| WSL hangs | Set `num_workers=0` |
+| Cloud tidak terdeteksi | Sesuaikan threshold di `generate_labels.py` |
