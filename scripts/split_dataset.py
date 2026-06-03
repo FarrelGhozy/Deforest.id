@@ -1,19 +1,29 @@
 """Split dataset into train/val/test — stratified by scene.
 
 Usage:
-    python scripts/split_dataset.py \
-        --chips-dir services/gee-export/src/data/training/unet/chips \
-        --labels-dir services/gee-export/src/data/training/unet/labels_ndvi \
-        --output-dir services/gee-export/src/data/training/unet \
+    uv run python scripts/split_dataset.py \
+        --chips-dir data/training/unet/chips \
+        --labels-dir data/training/unet/labels_ndvi \
+        --output-dir data/training/unet \
         --train-ratio 0.70 --val-ratio 0.15 --test-ratio 0.15
 """
 
 import argparse
 import json
-import numpy as np
-from pathlib import Path
+import os
+import re
 from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
 from sklearn.model_selection import train_test_split
+
+MASK_PATTERN = re.compile(
+    r'(?P<scene>.+?)_deforest_(?P<row>\d+)_(?P<col>\d+)_mask\.npz$'
+)
+CHIP_PATTERN = re.compile(
+    r'(?P<scene>.+?)_deforest_(?P<row>\d+)_(?P<col>\d+)\.npz$'
+)
 
 
 def main():
@@ -31,19 +41,50 @@ def main():
     labels_path = Path(args.labels_dir)
     output_path = Path(args.output_dir)
 
-    npz_files = sorted(chips_path.glob("*.npz"))
+    # Find all mask files → these define the dataset (one sample per mask)
+    mask_files = sorted(labels_path.glob("*_mask.npz"))
+    print(f"Found {len(mask_files)} mask files")
 
-    # Group chips by scene for stratified split
+    # Group by scene for stratified split
     scene_map = defaultdict(list)
-    for npz_path in npz_files:
-        data = np.load(npz_path)
-        scene = str(data["scene"])
-        scene_map[scene].append(npz_path.stem)
-        data.close()
+    for mf in mask_files:
+        m = MASK_PATTERN.match(mf.name)
+        if not m:
+            continue
+        key = (m.group("scene"), int(m.group("row")), int(m.group("col")))
+        scene = m.group("scene")
+        scene_map[scene].append(key)
 
-    print(f"Found {len(npz_files)} chips across {len(scene_map)} scenes")
+    # For each mask, find the corresponding deforest chip
+    matched = 0
+    missing_chip = 0
+    entries = []  # (scene, key, chip_path, mask_path)
+    for mf in mask_files:
+        m = MASK_PATTERN.match(mf.name)
+        if not m:
+            continue
+        scene = m.group("scene")
+        row, col = int(m.group("row")), int(m.group("col"))
+        key = (scene, row, col)
 
-    scenes = list(scene_map.keys())
+        chip_name = f"{scene}_deforest_{row}_{col}.npz"
+        chip_path = chips_path / chip_name
+        if not chip_path.exists():
+            missing_chip += 1
+            continue
+
+        entries.append((scene, key, chip_path, mf))
+        matched += 1
+
+    print(f"Matched {matched} chip↔mask pairs, {missing_chip} missing chips")
+
+    # Group entries by scene for stratified split
+    scene_entries = defaultdict(list)
+    for scene, key, chip_path, mask_path in entries:
+        scene_entries[scene].append(key)
+
+    scenes = list(scene_entries.keys())
+    print(f"Split {len(scenes)} scenes into train/val/test")
 
     # First split: scenes → train + temp
     train_scenes, temp_scenes = train_test_split(
@@ -62,56 +103,46 @@ def main():
 
     split_map = {"train": train_scenes, "val": val_scenes, "test": test_scenes}
 
-    # Create output directories
     for split_name in ["train", "val", "test"]:
         (output_path / split_name / "images").mkdir(parents=True, exist_ok=True)
         (output_path / split_name / "masks").mkdir(parents=True, exist_ok=True)
 
-    # Copy files (symlink or copy) + create metadata
     manifest = {"train": [], "val": [], "test": []}
     counts = {"train": 0, "val": 0, "test": 0}
 
     for split_name, scenes_list in split_map.items():
-        for scene in scenes_list:
-            for stem in scene_map[scene]:
-                # Source files
-                npz_src = chips_path / f"{stem}.npz"
-                mask_src = labels_path / f"{stem}_mask.npy"
+        allowed_scenes = set(scenes_list)
+        for scene, key, chip_path, mask_path in entries:
+            if scene not in allowed_scenes:
+                continue
 
-                if not mask_src.exists():
-                    print(f"  WARNING: mask not found for {stem}, skipping")
-                    continue
+            img_dst = output_path / split_name / "images" / chip_path.name
+            mask_dst = output_path / split_name / "masks" / mask_path.name
 
-                # Destination: we symlink to save space
-                img_dst = output_path / split_name / "images" / f"{stem}.npz"
-                mask_dst = output_path / split_name / "masks" / f"{stem}_mask.npy"
+            if not img_dst.exists():
+                img_dst.symlink_to(os.path.relpath(chip_path, img_dst.parent))
+            if not mask_dst.exists():
+                mask_dst.symlink_to(os.path.relpath(mask_path, mask_dst.parent))
 
-                if not img_dst.exists():
-                    img_dst.symlink_to(os.path.relpath(npz_src, img_dst.parent))
-                if not mask_dst.exists():
-                    mask_dst.symlink_to(os.path.relpath(mask_src, mask_dst.parent))
+            manifest[split_name].append({
+                "stem": chip_path.stem,
+                "scene": scene,
+                "image": str(img_dst),
+                "mask": str(mask_dst),
+            })
+            counts[split_name] += 1
 
-                manifest[split_name].append({
-                    "stem": stem,
-                    "scene": scene,
-                    "image": str(img_dst),
-                    "mask": str(mask_dst),
-                })
-                counts[split_name] += 1
-
-    # Save manifest
     manifest_path = output_path / "manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
 
     print(f"\nSplit complete:")
-    print(f"  Train: {counts['train']} chips ({len(train_scenes)} scenes)")
-    print(f"  Val:   {counts['val']} chips ({len(val_scenes)} scenes)")
-    print(f"  Test:  {counts['test']} chips ({len(test_scenes)} scenes)")
-    print(f"  Total: {sum(counts.values())} chips")
+    print(f"  Train: {counts['train']} ({len(train_scenes)} scenes)")
+    print(f"  Val:   {counts['val']} ({len(val_scenes)} scenes)")
+    print(f"  Test:  {counts['test']} ({len(test_scenes)} scenes)")
+    print(f"  Total: {sum(counts.values())}")
     print(f"\nManifest saved to {manifest_path}")
 
 
 if __name__ == "__main__":
-    import os
     main()

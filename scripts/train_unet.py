@@ -34,9 +34,9 @@ class DeforestDataset(Dataset):
         entry = self.entries[idx]
 
         data = np.load(entry["image"])
-        rgb = data["rgb"].astype(np.float32) / 255.0  # (3, 64, 64)
-        nir = data["nir"]                              # (64, 64)
-        ndvi = data["ndvi"]                            # (64, 64)
+        rgb = data["rgb"].astype(np.float32) / 255.0   # (3, 64, 64)
+        nir = np.nan_to_num(data["nir"].astype(np.float32) / 10000.0, 0.0) # (64, 64)
+        ndvi = np.nan_to_num(data["ndvi"].astype(np.float32), 0.0)         # (64, 64)
 
         # Stack input: RGB + NIR + NDVI = 5 channels
         image = np.concatenate([
@@ -45,7 +45,8 @@ class DeforestDataset(Dataset):
             ndvi[np.newaxis, :, :],
         ], axis=0)  # (5, 64, 64)
 
-        mask = np.load(entry["mask"]).astype(np.int64)  # (64, 64)
+        mask_npz = np.load(entry["mask"])
+        mask = mask_npz["mask"].astype(np.int64)  # (64, 64)
 
         return (
             torch.from_numpy(image),
@@ -207,8 +208,8 @@ def main():
     train_dataset = DeforestDataset(manifest["train"])
     val_dataset = DeforestDataset(manifest["val"])
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     print(f"Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples")
     print(f"Device: {device}")

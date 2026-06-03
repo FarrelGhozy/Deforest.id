@@ -67,3 +67,11 @@ Desktop.ini
 .docker/
 preview_*.png
 preview.png
+
+# --- ML outputs ---
+data/training/unet/predictions/
+data/training/unet/comparisons/
+data/training/unet/review_progress.json
+models/unet_deforest/
+*.pth
+*.npy
