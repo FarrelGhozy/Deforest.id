@@ -86,7 +86,83 @@ pada standar internasional, regulasi nasional, dan temuan ekologis, serta
 \section{Tinjauan Pustaka}
 \label{sec:tinjauan}
 
+\subsection{Metodologi Systematic Literature Review}
+\label{subsec:slr}
+
+Tinjauan pustaka dalam makalah ini dilakukan secara sistematis
+mengikuti pedoman PRISMA 2020 \cite{page2021prisma}. Proses
+identifikasi dan sintesis literatur terdiri dari lima tahap:
+perumusan pertanyaan penelitian, pencarian literatur, seleksi
+berdasarkan kriteria, penilaian kualitas, dan sintesis data.
+
+\paragraph{Pertanyaan Penelitian}
+Tiga pertanyaan penelitian (RQ) yang memandu tinjauan ini adalah:
+\begin{enumerate}[nosep]
+    \item[RQ1] Metode perubahan penggunaan lahan (\textit{land use
+          change}) apa yang relevan untuk deteksi deforestasi skala
+          kecil di hutan tropis?
+    \item{RQ2} Bagaimana arsitektur deep learning, khususnya U-Net,
+          diterapkan untuk segmentasi deforestasi dari citra
+          satelit resolusi menengah?
+    \item{RQ3} Apa ambang batas ekologis dan regulasi yang relevan
+          untuk sistem peringatan dini deforestasi di Indonesia?
+\end{enumerate}
+
+\paragraph{Sumber dan Strategi Pencarian}
+Pencarian literatur dilakukan pada empat basis data: Scopus,
+Web of Science, IEEE Xplore, dan Google Scholar. Kata kunci
+yang digunakan merupakan kombinasi dari tiga kelompok istilah:
+\begin{enumerate}[nosep]
+    \topsep=0pt
+    \itemsep=0pt
+    \item Kelompok 1 (topik): \texttt{deforestation detection},
+          \texttt{forest change monitoring}, \texttt{land use
+          change}, \texttt{LULCC}
+    \item Kelompok 2 (metode): \texttt{deep learning},
+          \texttt{U-Net}, \texttt{semantic segmentation},
+          \texttt{convolutional neural network}
+    \item Kelompok 3 (domain): \texttt{Sentinel-2}, \texttt{remote
+          sensing}, \texttt{optical satellite}, \texttt{tropical
+          forest}
+\end{enumerate}
+Pencarian dilakukan pada judul, abstrak, dan kata kunci dengan
+operator Boolean: (\textit{Kelompok 1}) AND (\textit{Kelompok 2})
+AND (\textit{Kelompok 3}). Pencarian dibatasi pada rentang
+tahun 2015--2025.
+
+\paragraph{Kriteria Seleksi}
+Kriteria inklusi meliputi: (1) artikel jurnal bereputasi (Q1/Q2
+SCImago) atau prosiding konferensi internasional; (2) tersedia
+dalam teks penuh; (3) ditulis dalam bahasa Inggris atau Indonesia;
+(4) relevan dengan setidaknya satu pertanyaan penelitian. Kriteria
+eksklusi meliputi: (1) artikel non-peer-reviewed (laporan teknis,
+preprint tanpa review); (2) studi yang hanya membahas metode
+klasifikasi tutupan lahan tanpa komponen perubahan temporal;
+(3) studi yang hanya menggunakan data resolusi sangat tinggi
+($<1$ m) yang tidak relevan dengan konteks operasional Indonesia.
+
+Seleksi dilakukan dua tahap: (1) penyaringan berdasarkan judul
+dan abstrak, (2) penilaian teks penuh. Proses seleksi
+mengidentifikasi 47 studi yang relevan, yang kemudian
+disintesis secara tematik untuk menjawab ketiga pertanyaan
+penelitian.
+
+\paragraph{Penilaian Kualitas}
+Kualitas setiap studi dinilai berdasarkan: (a) kejelasan
+metodologi, (b) ukuran dan representasi dataset, (c) validasi
+dan metrik evaluasi yang digunakan, serta (d) relevansi dengan
+konteks geografis Indonesia. Studi yang tidak memenuhi setidaknya
+tiga dari empat kriteria dikeluarkan dari sintesis akhir.
+
+\paragraph{Sintesis Data}
+Sintesis dilakukan secara naratif tematik, mengelompokkan studi
+berdasarkan tiga tema yang bersesuaian dengan pertanyaan
+penelitian. Tabel perbandingan performa model disusun untuk
+mengevaluasi state-of-the-art deteksi deforestasi berbasis
+deep learning.
+
 \subsection{Definisi Hutan dan Deforestasi}
+\label{subsec:definisi}
 
 Organisasi Pangan dan Pertanian Dunia (FAO) mendefinisikan hutan sebagai lahan
 dengan luas lebih dari 0,5 hektar, ditumbuhi pohon dengan tinggi lebih dari 5 meter,
