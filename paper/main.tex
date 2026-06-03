@@ -218,11 +218,82 @@ mengidentifikasi beberapa titik kritis:
           mampu mendukung sebagian kecil spesies asli \cite{flaspohler2010fragmentation}
 \end{enumerate}
 
+\subsection{Metode Deteksi Perubahan Penggunaan Lahan}
+\label{subsec:lulcc}
+
+Deteksi perubahan penggunaan lahan (\textit{land use and land cover
+change}, LULCC) merupakan fondasi analisis deforestasi dari citra
+satelit. Singh \cite{singh1989change} mengklasifikasikan teknik
+deteksi perubahan digital ke dalam dua kategori utama:
+perbandingan pasca-klasifikasi (\textit{post-classification
+comparison}) dan perbedaan spektral langsung (\textit{spectral
+differencing}). Pendekatan pertama mengklasifikasikan setiap citra
+secara independen kemudian membandingkan peta tematik yang
+dihasilkan, sedangkan pendekatan kedua menghitung selisih nilai
+spektral antar waktu secara langsung.
+
+Lu dkk. \cite{lu2004change} memberikan tinjauan komprehensif
+terhadap lebih dari 20 teknik deteksi perubahan dan menyimpulkan
+bahwa tidak ada satu metode yang optimal untuk semua kasus.
+Teknik yang paling umum digunakan meliputi:
+\textit{image differencing}, \textit{principal component analysis}
+(PCA), \textit{change vector analysis} (CVA), perbandingan
+pasca-klasifikasi, dan \textit{spectral mixture analysis}.
+Pemilihan metode bergantung pada karakteristik wilayah studi,
+resolusi spasial dan temporal data, serta tujuan analisis.
+
+Dalam konteks deforestasi tropis, pendekatan yang dominan dapat
+dikelompokkan sebagai berikut:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Perbandingan pasca-klasifikasi}: metode klasik
+          yang membandingkan peta tutupan lahan dari dua atau lebih
+          waktu. Keunggulannya adalah kemudahan interpretasi, namun
+          akurasi sangat bergantung pada akurasi klasifikasi
+          individual dan kesalahan terakumulasi \cite{lu2004change}.
+    \item \textbf{Diferensiasi indeks vegetasi}: metode paling umum
+          untuk deforestasi, menggunakan selisih NDVI atau indeks
+          lain antar waktu. NDVI temporal threshold (\textit{delta}
+          NDVI) digunakan dalam pipeline kami sebagai \textit{pseudo-label}
+          awal \cite{blaschke2010obia}.
+    \item \textbf{Analisis vektor perubahan (CVA)}: mendeteksi
+          perubahan berdasarkan besar dan arah vektor spektral.
+          CVA mampu mengidentifikasi jenis perubahan (deforestasi
+          vs. degradasi) namun memerlukan kalibrasi threshold yang
+          cermat \cite{lu2004change}.
+    \item \textbf{Analisis berbasis objek (OBIA/GEOBIA)}:
+          mengelompokkan piksel menjadi objek bermakna sebelum
+          klasifikasi, sehingga memanfaatkan informasi konteks
+          spasial, bentuk, dan tekstur. Blaschke \cite{blaschke2010obia}
+          menunjukkan bahwa OBIA unggul pada citra resolusi tinggi
+          ($<10$ m) namun kurang optimal untuk data resolusi
+          menengah seperti Sentinel-2 10 m.
+    \item \textbf{Deep learning segmentasi}: pendekatan terkini
+          yang mempelajari representasi fitur secara end-to-end.
+          Arsitektur U-Net dan variannya mampu mempelajari pola
+          deforestasi langsung dari data tanpa rekayasa fitur
+          manual \cite{ronneberger2015unet, john2022attention}.
+          Pendekatan ini menjadi fokus utama penelitian kami dan
+          dibahas secara rinci pada sub-bagian berikutnya.
+\end{enumerate}
+
+Pendekatan deep learning untuk segmentasi semantik mengatasi
+keterbatasan metode klasik dengan mempelajari representasi fitur
+secara hierarkis dan kontekstual, menghasilkan pemetaan deforestasi
+yang lebih akurat pada berbagai skala \cite{zhu2017deep,
+ma2019deep}. Tinjauan sistematis oleh Md Jelas dkk.
+\cite{mdjelas2024deforestation} mengonfirmasi bahwa U-Net dan
+variannya merupakan arsitektur yang paling banyak digunakan untuk
+deteksi deforestasi berbasis deep learning, dengan kecenderungan
+peningkatan penggunaan mekanisme perhatian (\textit{attention})
+dan fusi data multispesktral.
+
 \subsection{Deep Learning untuk Segmentasi Deforestasi}
+\label{subsec:dl}
 
 Arsitektur U-Net \cite{ronneberger2015unet} telah menjadi \textit{backbone}
 untuk segmentasi semantik citra medis dan kemudian diadopsi secara luas dalam
-penginderaan jauh. Keunggulan utamanya adalah:
+penginderaan jauh \cite{zhu2017deep}. Keunggulan utamanya adalah:
 
 \begin{itemize}[nosep]
     \item \textbf{Skip connections}: menghubungkan encoder dan decoder untuk
@@ -233,10 +304,58 @@ penginderaan jauh. Keunggulan utamanya adalah:
           kanal spektral
 \end{itemize}
 
-Penelitian sebelumnya tentang deteksi deforestasi menggunakan U-Net menunjukkan
-hasil yang menjanjikan pada berbagai resolusi dan wilayah geografis
-\cite{hansen2013high}. Kontribusi penelitian ini terletak
-pada integrasi pipeline lengkap dari akuisisi data hingga sistem peringatan dini.
+Beberapa studi terkini telah menerapkan deep learning untuk deteksi
+deforestasi dengan hasil yang menjanjikan. John dan Zhang
+\cite{john2022attention} menerapkan Attention U-Net pada citra
+Sentinel-2 untuk deteksi deforestasi di Amazon dan Hutan Atlantik,
+mencapai F1-score 0,9550--0,9769 pada tiga dataset berbeda.
+Guimarães dkk. \cite{guimaraes2025deep} menggunakan U-Net dengan
+fitur koheren Sentinel-1 SAR dan mencapai IoU deforestasi 0,54
+serta IoU rata-rata 0,51 di berbagai bentang alam Amazon.
+Sementara itu, Solórzano dkk. \cite{solorzano2021lulc} menerapkan U-Net
+dengan fusi Sentinel-1 dan Sentinel-2 untuk klasifikasi LULC
+detail, mencapai OA 0,76 dan F1-score rata-rata 0,58 pada 10 kelas.
+
+Tabel~\ref{tab:sota} menyajikan perbandingan hasil studi terkini
+dengan penelitian ini. Meskipun perbandingan langsung terbatas
+oleh perbedaan dataset, wilayah studi, dan skema klasifikasi,
+tabel ini memberikan konteks posisi penelitian kami dalam lanskap
+state-of-the-art.
+
+\begin{table}[H]
+\centering
+\caption{Perbandingan dengan state-of-the-art deteksi deforestasi}
+\label{tab:sota}
+\small
+\begin{tabular}{lp{2.2cm}p{1.5cm}p{0.8cm}p{1.5cm}c}
+\toprule
+\textbf{Studi} & \textbf{Metode} & \textbf{Data} & \textbf{Kelas} & \textbf{Metrik} & \textbf{Wilayah} \\
+\midrule
+John \& Zhang
+\cite{john2022attention}
+& Attention U-Net
+& S2
+& 2 & F1\,0,955--0,977 & Amazon \\
+Guimarães dkk.
+\cite{guimaraes2025deep}
+& U-Net + SAR
+& S1
+& 4 & IoU\,0,51--0,66 & Amazon \\
+Solórzano dkk.
+\cite{solorzano2021lulc}
+& U-Net
+& S1+S2
+& 10 & OA\,0,76 (F1\,0,58) & Tropis \\
+\textbf{Penelitian ini}
+& \textbf{U-Net}
+& \textbf{S2}
+& \textbf{2}
+& \textbf{IoU\,0,73} &
+\textbf{Indonesia} \\
+& & & & \textbf{Dice\,0,84} & \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Metodologi}
 \label{sec:metodologi}
