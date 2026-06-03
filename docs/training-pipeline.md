@@ -154,4 +154,4 @@ with torch.no_grad():
     mask = logits.argmax(dim=1)  # 0=forest, 1=deforest
 ```
 
-Lihat [scripts/infer_unet.py](../scripts/infer_unet.py) untuk full pipeline inference.
+Lihat [scripts/infer_unet.py](https://github.com/FarrelGhozy/Deforest.id/blob/main/scripts/infer_unet.py) untuk full pipeline inference.
