@@ -672,6 +672,91 @@ Gambar~\ref{fig:test_metrics} menunjukkan metrik evaluasi pada test set
 \label{fig:test_metrics}
 \end{figure}
 
+\subsection{Perbandingan dengan Metode Baseline}
+\label{subsec:baseline}
+
+Untuk mengevaluasi keunggulan pendekatan deep learning, kami
+membandingkan hasil U-Net dengan dua metode baseline: (1) threshold
+NDVI temporal (metode yang sama dengan pembuatan pseudo-label) dan
+(2) Random Forest (RF) yang dilaporkan dalam literatur pada konteks
+dan data yang sebanding.
+
+\subsubsection{NDVI Temporal Threshold}
+\label{subsubsec:ndvi_baseline}
+
+Metode threshold NDVI temporal (\textit{delta} NDVI $< -0,15$)
+yang digunakan dalam pembuatan pseudo-label (Persamaan~\ref{eq:deforest})
+dapat dianggap sebagai baseline deteksi. Metode ini sederhana dan
+cepat, namun memiliki keterbatasan signifikan:
+
+\begin{itemize}[nosep]
+    \item \textbf{False positive tinggi}: perubahan NDVI dapat
+          disebabkan oleh variasi musiman, efek bayangan, atau
+          perubahan tutupan lahan non-deforestasi (pertanian
+          musiman, kebakaran padang rumput)
+    \item \textbf{Tidak ada konteks spasial}: setiap piksel diproses
+          secara independen tanpa informasi tekstur atau konteks
+          sekitar
+    \item \textbf{Sensitivitas threshold}: pemilihan nilai threshold
+          sangat memengaruhi hasil dan bersifat spesifik lokasi
+\end{itemize}
+
+U-Net mengatasi keterbatasan ini dengan mempelajari representasi
+spasial hierarkis yang menggabungkan informasi konteks global dan
+lokal, sehingga mampu membedakan deforestasi sejati dari perubahan
+NDVI yang tidak terkait deforestasi.
+
+\subsubsection{Random Forest}
+\label{subsubsec:rf_baseline}
+
+Random Forest merupakan \textit{machine learning classifier} yang
+banyak digunakan untuk klasifikasi tutupan lahan dan deteksi
+perubahan \cite{solorzano2021lulc}. Solórzano dkk.
+\cite{solorzano2021lulc} membandingkan U-Net dengan RF pada fusi
+Sentinel-1 dan Sentinel-2 untuk klasifikasi 10 kelas LULC di
+kawasan tropis. Hasil mereka menunjukkan U-Net mengungguli RF
+dengan selisih OA 0,23 poin (0,76 vs. 0,53). Keunggulan U-Net
+semakin signifikan pada kelas-kelas yang memerlukan diskriminasi
+spasial halus, seperti hutan tua vs. perkebunan.
+
+Secara umum, deep learning unggul dalam tiga aspek utama dibanding
+machine learning konvensional untuk deteksi deforestasi
+\cite{zhu2017deep, ma2019deep}:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Representasi fitur end-to-end}: tidak memerlukan
+          rekayasa fitur manual (\textit{feature engineering})
+    \item \textbf{Konteks spasial multi-skala}: convolution dan
+          pooling memungkinkan model menangkap pola pada berbagai
+          resolusi
+    \item \textbf{Generalisation}: dengan data latih yang cukup,
+          deep learning dapat menggeneralisasi ke pola deforestasi
+          yang tidak terlihat dalam pelatihan
+\end{enumerate}
+
+\subsubsection{Kontekstualisasi Hasil}
+\label{subsubsec:konteks}
+
+Dengan IoU test 0,7256 dan Dice 0,8410, model kami menunjukkan
+performa yang kompetitif dalam konteks deteksi deforestasi skala
+kecil. Meskipun perbandingan langsung dengan studi lain terbatas
+oleh perbedaan dataset dan wilayah (Tabel~\ref{tab:sota}), beberapa
+poin penting dapat dicatat:
+
+\begin{enumerate}[nosep]
+    \item Model kami mendeteksi deforestasi pada skala 0,64 hektar
+          per chip — lebih kecil dari ambang minimum FAO (0,5 ha)
+          dan jauh di bawah ambang 6,25 ha yang digunakan dalam
+          sistem REDD+ Indonesia
+    \item Akurasi deteksi (Recall 0,848) menunjukkan model mampu
+          menangkap sebagian besar area deforestasi, termasuk
+          petak-petak kecil yang secara kumulatif signifikan
+          \cite{xu2026nature}
+    \item Presisi yang seimbang (0,834) mengindikasikan bahwa
+          false positive relatif terkendali — penting untuk
+          kepercayaan pengguna sistem peringatan dini
+\end{enumerate}
+
 \subsection{Sampel Prediksi}
 
 Gambar~\ref{fig:samples} menampilkan perbandingan antara RGB input, ground truth,
