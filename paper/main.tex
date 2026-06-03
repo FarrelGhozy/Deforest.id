@@ -367,6 +367,104 @@ Google Earth Engine, (2) tiling dan chipping, (3) deteksi awan, (4) pembuatan
 pseudo-label deforestasi, (5) pelatihan model U-Net, dan (6) inferensi serta
 sistem peringatan dini.
 
+\subsection{Kerangka Analisis Spasial dan Deteksi Perubahan}
+\label{subsec:analisis}
+
+Kerangka analisis perubahan lahan dalam penelitian ini mengikuti
+pendekatan \textit{multi-faceted} yang direkomendasikan oleh Zhu
+dkk. \cite{zhu2022remote}, yang mencakup lima aspek perubahan:
+lokasi, waktu, target, metrik, dan agen. Untuk konteks deteksi
+dini deforestasi, penelitian ini berfokus pada tiga aspek pertama:
+lokasi (koordinat spasial chip), waktu (selisih temporal antara
+citra baseline dan deforestasi), dan target (luas area deforestasi
+dalam hektar).
+
+\subsubsection{Konversi Piksel ke Area Geografis}
+\label{subsubsec:pixel2area}
+
+Setiap piksel pada citra Sentinel-2 memiliki resolusi 10~m,
+sehingga satu piksel mewakili $10 \times 10 = 100$~m${}^2$ di
+lapangan, atau setara dengan 0,01 hektar. Setiap chip berukuran
+$64 \times 64$ piksel mencakup area $640 \times 640$~m atau
+0,64 hektar. Dengan demikian, luas deforestasi terdeteksi ($A$)
+dihitung sebagai:
+
+\begin{equation}
+    \label{eq:area}
+    A_{\text{ha}} = N_{\text{piksel deforestasi}} \times 0,01
+\end{equation}
+
+di mana $N_{\text{piksel deforestasi}}$ adalah jumlah piksel
+yang diklasifikasikan sebagai deforestasi oleh model U-Net dalam
+satu chip. Untuk analisis pada tingkat scene, hasil deteksi dari
+seluruh chip dalam suatu scene digabungkan dengan mempertimbangkan
+overlap 50\% pada proses chipping (stride 32 piksel). Piksel yang
+mendapat prediksi ganda (dari chip yang bertumpuk) dirata-ratakan
+untuk menghasilkan peta deforestasi kontinu pada tingkat scene.
+
+\subsubsection{Agregasi Spasial}
+\label{subsubsec:agregasi}
+
+Proses agregasi spasial dilakukan dalam tiga tahap:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Tingkat chip}: model menghasilkan prediksi
+          per-piksel untuk setiap chip $64 \times 64$. Luas
+          deforestasi per chip dihitung menggunakan
+          Persamaan~\ref{eq:area}.
+    \item \textbf{Tingkat tile}: chip-chip dalam satu tile
+          $512 \times 512$ digabungkan dengan rata-rata
+          tertimbang pada area overlap. Tile setara dengan
+          $5,12 \times 5,12$ km atau 26,2 hektar.
+    \item \textbf{Tingkat scene}: seluruh tile dalam satu scene
+          (ukuran asli $10.980 \times 10.980$ piksel, setara
+          dengan $109,8 \times 109,8$ km) digabungkan untuk
+          menghasilkan peta deforestasi tingkat landscape.
+\end{enumerate}
+
+\subsubsection{Penerapan Threshold Peringatan Dini}
+\label{subsubsec:threshold}
+
+Setelah luas deforestasi terdeteksi pada setiap tingkat agregasi,
+sistem membandingkannya dengan kerangka ambang batas yang telah
+dirumuskan (Tabel~\ref{tab:thresholds} dan
+Tabel~\ref{tab:alert_levels}). Untuk mengintegrasikan data
+kawasan hutan lindung, sistem menerima masukan peta kawasan
+(status kawasan) dalam format raster biner (1 = lindung,
+0 = non-lindung). Amplifikasi peringatan diterapkan dengan
+menaikkan satu level untuk piksel dalam kawasan lindung.
+
+Alur keputusan peringatan dini adalah sebagai berikut:
+
+\begin{enumerate}[nosep]
+    \item Model menghasilkan peta prediksi deforestasi pada
+          resolusi 10~m
+    \item Sistem menghitung luas deforestasi per polygon
+          (komponen terhubung) menggunakan connected-component
+          labeling dengan konektivitas 8-tetangga
+    \item Setiap polygon dievaluasi terhadap tiga ambang batas:
+          \textit{Waspada} ($\geq$0,64~ha), \textit{Siaga}
+          ($\geq$2~ha), \textit{Kritis} ($\geq$6,25~ha)
+    \item Level peringatan dinaikkan satu tingkat jika polygon
+          berada di kawasan hutan lindung
+    \item Sistem mengeluarkan alert: lokasi (koordinat centroid),
+          luas (ha), level peringatan, dan status kawasan
+\end{enumerate}
+
+\subsubsection{Validasi Spasial}
+\label{subsubsec:validasi}
+
+Validasi hasil deteksi dilakukan dengan dua pendekatan:
+(1) validasi kuantitatif berbasis piksel menggunakan metrik
+IoU, Dice, Precision, dan Recall pada test set, dan
+(2) validasi berbasis area dengan membandingkan luas total
+deforestasi terdeteksi terhadap referensi pada tingkat scene.
+Pendekatan kedua mengikuti metode Pontius dkk.
+\cite{pontius2001roc, pontius2017methods} untuk mengukur
+kesesuaian antara peta perubahan terdeteksi dan referensi
+dalam hal kuantitas (\textit{quantity}) dan alokasi
+(\textit{allocation}) perubahan.
+
 \subsection{Akuisisi Data dan Pra-pemrosesan}
 
 Data berasal dari citra Sentinel-2 Level-2A (\textit{Surface Reflectance}) yang
