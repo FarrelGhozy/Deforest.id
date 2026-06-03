@@ -1,0 +1,94 @@
+\documentclass[12pt,a4paper,twocolumn]{article}
+
+% --- minimal packages for ICP ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[id]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\geometry{top=2cm,left=2cm,right=2cm,bottom=2cm}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=blue}
+\setlength{\columnsep}{0.5cm}
+
+\title{\textbf{Deteksi Dini Deforestasi pada Hutan Lindung \\
+Menggunakan U-Net dan Citra Sentinel-2} \\
+\large Idea Concept Paper --- Deforest.id}
+\author{Peneliti -- Deforest.id}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\section{Pendahuluan}
+Indonesia memiliki hutan tropis terluas ketiga di dunia dengan
+$\sim94$ juta hektar, namun kehilangan $\sim300$ ribu hektar hutan
+alam per tahun \cite{fao2022sofo}. Kawasan hutan lindung -- yang
+berfungsi sebagai sistem penyangga kehidupan (tata air, erosi,
+kesuburan tanah) -- sangat rentan karena deforestasi skala kecil
+($<$2~ha) secara kumulatif menyumbang $>$56\% total emisi karbon
+hutan tropis \cite{xu2026nature}.
+
+Masalah utama: sistem pemantauan eksisting (Global Forest Watch,
+SIMONTANA) hanya mendeteksi pada resolusi 30~m atau lebih, sehingga
+petak deforestasi kecil yang ekologis signifikan sering lolos.
+Indonesia menggunakan ambang minimum 6,25~ha untuk pelaporan REDD+
+\cite{unfccc2022indonesia}, jauh di atas ambang dampak ekologis
+2~ha \cite{xu2026nature}. Dibutuhkan sistem yang mampu mendeteksi
+deforestasi pada skala 0,5--2~ha secara otomatis dan real-time.
+
+\section{Ide dan Kebaruan}
+Kami mengusulkan pipeline deteksi deforestasi otomatis pada citra
+Sentinel-2 (resolusi 10~m) menggunakan arsitektur U-Net, yang
+dilengkapi kerangka ambang batas peringatan dini tiga level:
+\textit{Waspada} ($\ge$0,64~ha), \textit{Siaga} ($\ge$2~ha),
+\textit{Kritis} ($\ge$6,25~ha) dengan amplifikasi peringatan untuk
+hutan lindung. Kebaruan terletak pada:
+\begin{enumerate}[nosep]
+    \item Integrasi pseudo-labeling NDVI temporal + U-Net tanpa
+          anotasi manual
+    \item Heuristik deteksi awan RGB-NDVI sebagai solusi atas QA60
+          yang tidak berfungsi
+    \item Kerangka ambang batas yang mensintesis tiga pilar:
+          definisi FAO, temuan ekologis \cite{xu2026nature,
+          taubert2018fragmentation}, dan regulasi Indonesia
+\end{enumerate}
+
+\section{Metodologi}
+Pipeline terdiri dari enam tahap: (1) akuisisi 7 scene Sentinel-2
+dari GEE (5 kanal: RGB+NIR+NDVI); (2) tiling $512\times512$ dan
+chipping $64\times64$ dengan overlap 50\%; (3) deteksi awan dengan
+heuristik RGB ($R{>}180\land G{>}180\land B{>}180\land
+\text{NDVI}{<}0,10$); (4) pseudo-label deforestasi via delta NDVI
+($\Delta\text{NDVI}<-0,15$) + morfologi; (5) pelatihan U-Net 5
+kanal input, Dice Loss, 50 epoch; (6) inferensi dan sistem
+peringatan. Setiap piksel $10\times10$ m = 0,01~ha, sehingga
+konversi luas deforestasi: $A(\text{ha}) = N_{\text{piksel}} \times 0,01$.
+
+\section{Hasil Awal dan Roadmap}
+Model diuji pada 5.695 sampel dari 2 scene dengan IoU 0,7256,
+Dice 0,8410, Precision 0,8340, Recall 0,8480. Model mampu
+mendeteksi deforestasi pada skala 0,64~ha per chip, jauh di bawah
+ambang nasional 6,25~ha. Roadmap pengembangan:
+
+\begin{enumerate}[nosep]
+    \item Integrasi data Sentinel-1 SAR untuk menembus tutupan awan
+    \item Validasi lapangan pada 3 lokasi hutan lindung di Indonesia
+    \item Deployment berbasis web dengan streaming GEE + inference
+          on-the-fly
+    \item Integrasi peta kawasan hutan lindung (KHLK) untuk
+          amplifikasi peringatan otomatis
+\end{enumerate}
+
+\small
+\bibliographystyle{ieeetr}
+\bibliography{icp-refs}
+
+\end{document}
