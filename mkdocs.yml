@@ -35,6 +35,7 @@ nav:
   - Annotation Pipeline: annotation-pipeline.md
   - Training Pipeline: training-pipeline.md
   - Results: results.md
+  - ICP Submission: icp.md
   - Getting Started: getting-started.md
 
 markdown_extensions:

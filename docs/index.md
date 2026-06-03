@@ -38,6 +38,12 @@ citra satelit Sentinel-2 dan deep learning (U-Net).
 
 ---
 
+---
+
+## ICP Submission
+
+Idea Concept Paper (3 halaman) telah dikirim — lihat [ICP Submission](icp.md) untuk detail.
+
 ## Tech Stack
 
 | Komponen | Teknologi |
