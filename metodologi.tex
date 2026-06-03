@@ -1,0 +1,555 @@
+\documentclass[12pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[bahasa]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{cite}
+
+\geometry{top=2.5cm,left=3cm,right=2.5cm,bottom=2.5cm}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=blue}
+
+\lstset{
+    basicstyle=\footnotesize\ttfamily,
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    backgroundcolor=\color{gray!10},
+}
+
+\title{\textbf{Metodologi Deteksi Deforestasi} \\
+        Menggunakan \textit{Deep Learning} U-Net \\
+        pada Citra Sentinel-2}
+\author{Peneliti -- Deforest.id}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Deforestasi merupakan salah satu permasalahan lingkungan yang kritis di Indonesia. 
+Penelitian ini mengembangkan sistem deteksi deforestasi otomatis menggunakan arsitektur 
+U-Net berbasis citra satelit Sentinel-2. Metodologi mencakup akuisisi data dari Google 
+Earth Engine (GEE), pra-pemrosesan meliputi deteksi awan heuristik RGB dan NDVI, 
+pembuatan \textit{pseudo-label} berbasis perubahan NDVI temporal, serta pelatihan 
+model segmentasi semantik dengan 5 kanal masukan (RGB + NIR + NDVI). Model dilatih 
+pada 11.500 sampel dari 4 scene, divalidasi pada 2.908 sampel, dan diuji pada 5.695 
+sampel dari 7 scene Sentinel-2. Hasil pengujian menunjukkan IoU sebesar 0,7256, 
+Dice 0,8410, Precision 0,8340, dan Recall 0,8480.
+\end{abstract}
+
+\section{Pendahuluan}
+\label{sec:pendahuluan}
+
+Indonesia memiliki hutan tropis terluas ketiga di dunia setelah Brasil dan 
+Republik Demokratik Kongo. Namun, laju deforestasi di Indonesia masih tinggi 
+akibat aktivitas illegal logging, perluasan perkebunan sawit, pertambangan, 
+dan kebakaran hutan \cite{fao2020}. Deteksi dini dan pemantauan deforestasi 
+secara periodik sangat diperlukan untuk mendukung upaya mitigasi dan penegakan 
+hukum.
+
+Citra satelit optik resolusi menengah seperti Sentinel-2 (ESA) menyediakan data 
+multispektral dengan resolusi spasial 10 meter dan frekuensi temporal 5 hari, 
+sehingga sangat cocok untuk pemantauan deforestasi \cite{drusch2012sentinel}. 
+Pendekatan \textit{deep learning}, khususnya arsitektur U-Net \cite{ronneberger2015unet}, 
+telah terbukti efektif untuk segmentasi semantik citra satelit.
+
+Penelitian ini bertujuan untuk mengembangkan metodologi deteksi deforestasi 
+otomatis yang mencakup seluruh pipeline dari akuisisi data hingga inferensi, 
+dengan fokus pada:
+
+\begin{enumerate}[nosep]
+    \item Akuisisi dan pra-pemrosesan data Sentinel-2 multi-temporal
+    \item Pembuatan \textit{pseudo-label} deforestasi berbasis perubahan NDVI
+    \item Pelatihan model U-Net untuk segmentasi deforestasi
+    \item Evaluasi dan visualisasi hasil prediksi
+\end{enumerate}
+
+\section{Data dan Materi}
+\label{sec:data}
+
+\subsection{Sumber Data}
+
+Data yang digunakan berasal dari citra satelit Sentinel-2 Level-2A 
+(\textit{Surface Reflectance}) yang diakses melalui Google Earth Engine (GEE). 
+Citra dipilih dari 7 scene yang mencakup wilayah hutan di Indonesia dengan 
+kombinasi dua periode waktu: \textit{baseline} (kondisi hutan awal) dan 
+\textit{post-deforestation} (kondisi setelah deforestasi).
+
+\subsubsection{Kanal Spektral}
+
+Empat kanal spektral Sentinel-2 digunakan:
+
+\begin{itemize}[nosep]
+    \item \textbf{B2 (Blue)}: 490 nm, resolusi 10 m
+    \item \textbf{B3 (Green)}: 560 nm, resolusi 10 m
+    \item \textbf{B4 (Red)}: 665 nm, resolusi 10 m
+    \item \textbf{B8 (NIR)}: 842 nm, resolusi 10 m
+\end{itemize}
+
+Selain itu, \textit{Normalized Difference Vegetation Index} (NDVI) dihitung 
+sebagai kanal tambahan:
+
+\begin{equation}
+    \label{eq:ndvi}
+    \text{NDVI} = \frac{\text{NIR} - \text{Red}}{\text{NIR} + \text{Red}}
+\end{equation}
+
+\subsection{Studi Area}
+
+Tujuh scene Sentinel-2 digunakan dalam penelitian ini. Setiap scene mencakup 
+area sekitar $109,8 \times 109,8$ km$^2$ (10.980 $\times$ 10.980 piksel pada 
+resolusi 10 m), atau sekitar 1,2 juta hektar per scene. Scene-scene tersebut 
+dipliih berdasarkan ketersediaan data multi-temporal dan bukti deforestasi yang 
+terverifikasi.
+
+\begin{table}[H]
+\centering
+\caption{Sebaran scene berdasarkan split dataset}
+\label{tab:scenes}
+\begin{tabular}{lrc}
+\toprule
+\textbf{Split} & \textbf{Jumlah Scene} & \textbf{Scene} \\
+\midrule
+Train & 4 & Beragam \\
+Val   & 1 & Mukomuko tahun 2019 \\
+Test  & 2 & Beragam \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Pembagian Dataset}
+
+Dataset dibagi dengan stratifikasi berdasarkan scene untuk menghindari 
+\textit{data leakage} antar split:
+
+\begin{itemize}[nosep]
+    \item \textbf{Train}: 11.500 sampel (57,2\%) dari 4 scene
+    \item \textbf{Validation}: 2.908 sampel (14,5\%) dari 1 scene
+    \item \textbf{Test}: 5.695 sampel (28,3\%) dari 2 scene
+\end{itemize}
+
+Total: \textbf{20.103 sampel} dari 7 scene unik. Masing-masing sampel berupa 
+\textit{chip} berukuran $64 \times 64$ piksel setara dengan $640 \times 640$ m 
+di lapangan.
+
+\section{Metodologi}
+\label{sec:metodologi}
+
+\subsection{Gambaran Umum Pipeline}
+
+Pipeline pemrosesan terdiri dari enam tahap utama:
+
+\begin{enumerate}[nosep]
+    \item Akuisisi data Sentinel-2 dari GEE
+    \item \textit{Tiling} citra menjadi tile $512 \times 512$ piksel
+    \item \textit{Chipping} menjadi chip $64 \times 64$ piksel
+    \item Deteksi awan dan pembuatan masker
+    \item Pembuatan \textit{pseudo-label} deforestasi berbasis NDVI
+    \item Pelatihan model U-Net
+\end{enumerate}
+
+\subsection{Akuisisi dan Pra-pemrosesan Data}
+
+\subsubsection{Tiling}
+
+Setiap scene Sentinel-2 berukuran 10.980 $\times$ 10.980 piksel di-\textit{tile}
+menjadi tile berukuran $512 \times 512$ piksel. Proses tiling dilakukan dengan 
+\textit{sliding window} tanpa tumpang tindih (\textit{overlap}), menghasilkan 
+sekitar 440 tile per scene.
+
+\subsubsection{Chipping}
+
+Tile $512 \times 512$ piksel kemudian di-\textit{chip} menjadi $64 \times 64$ 
+piksel dengan \textit{stride} 32 piksel (50\% overlap). \textit{Overlap} ini 
+bertujuan untuk:
+
+\begin{itemize}[nosep]
+    \item Meningkatkan jumlah sampel pelatihan
+    \item Mengurangi risiko deforestasi terpotong di tepi chip
+    \item Memberikan konteks spasial yang memadai untuk input U-Net
+\end{itemize}
+
+\subsection{Deteksi Awan}
+
+Kanal QA60 (\textit{cloud mask band}) pada data Sentinel-2 yang digunakan 
+seluruhnya bernilai nol (tidak berfungsi), sehingga deteksi awan dilakukan 
+menggunakan heuristik berbasis RGB dan NDVI.
+
+Suatu piksel diklasifikasikan sebagai awan jika memenuhi tiga kondisi:
+
+\begin{equation}
+    \label{eq:cloud}
+    \text{Awan}(p) =
+    \begin{cases}
+        1, & \text{jika } R > T_{bright} \land G > T_{bright} \land B > T_{bright} \\
+           & \land \text{NDVI} < T_{ndvi} \land B \geq G \geq R \\
+        0, & \text{lainnya}
+    \end{cases}
+\end{equation}
+
+dengan ambang batas $T_{bright} = 180$ (dari rentang 0--255) dan $T_{ndvi} = 0,10$.
+
+Alasan heuristik ini:
+
+\begin{itemize}[nosep]
+    \item Awan memantulkan seluruh spektrum tampak dengan intensitas tinggi
+    \item NDVI awan mendekati nol karena tidak ada vegetasi
+    \item Awan cenderung memiliki \textit{blue shift} (B $>$ G $>$ R)
+\end{itemize}
+
+Piksel awan diberi label \texttt{IGNORE\_LABEL = 255} dan tidak diikutsertakan 
+dalam perhitungan \textit{loss} selama pelatihan.
+
+\subsection{Pembuatan Pseudo-label Deforestasi}
+
+\label{sec:label}
+
+\textit{Pseudo-label} deforestasi dibuat menggunakan perubahan NDVI temporal 
+antara citra \textit{baseline} (hutan utuh) dan \textit{post-deforestation} 
+(dugaan deforestasi).
+
+\subsubsection{NDVI Change Detection}
+
+Perubahan NDVI dihitung sebagai:
+
+\begin{equation}
+    \label{eq:ndvi_change}
+    \Delta\text{NDVI} = \text{NDVI}_{t2} - \text{NDVI}_{t1}
+\end{equation}
+
+dengan $t_1$ = \textit{baseline} dan $t_2$ = \textit{post-deforestation}. 
+Suatu piksel diklasifikasikan sebagai deforestasi jika:
+
+\begin{equation}
+    \label{eq:deforest}
+    \text{Deforestasi}(p) =
+    \begin{cases}
+        1, & \text{jika } \Delta\text{NDVI} < T_{ndvi\_change} \\
+        0, & \text{lainnya}
+    \end{cases}
+\end{equation}
+
+dengan ambang batas $T_{ndvi\_change} = -0,15$. Nilai negatif menunjukkan 
+penurunan NDVI yang signifikan, mengindikasikan hilangnya vegetasi.
+
+\subsubsection{Post-processing Morfologi}
+
+Masker deforestasi hasil deteksi perubahan NDVI menjalani dua tahap 
+post-processing morfologi:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Morphological opening} (erosion $\rightarrow$ dilation) 
+          dengan kernel ellipse $5 \times 5$ untuk menghilangkan \textit{salt noise}
+    \item \textbf{Morphological closing} (dilation $\rightarrow$ erosion) 
+          dengan kernel yang sama untuk mengisi lubang kecil pada area deforestasi
+    \item \textbf{Connected component filtering}: komponen dengan luas 
+          $< 64$ piksel ($< 0,64$ ha) dihapus
+\end{enumerate}
+
+\subsection{Arsitektur U-Net}
+
+\subsubsection{Struktur Model}
+
+Model yang digunakan adalah U-Net \cite{ronneberger2015unet} dengan 
+5 kanal masukan dan 2 kanal keluaran. Arsitektur terdiri dari:
+
+\begin{itemize}[nosep]
+    \item \textbf{Encoder}: 4 tahap \textit{down-sampling}, masing-masing 
+          terdiri dari 2 lapisan konvolusi $3 \times 3$ + Batch Normalization 
+          + ReLU, diikuti \textit{max pooling} $2 \times 2$
+    \item \textbf{Bottleneck}: 512 filter konvolusi
+    \item \textbf{Decoder}: 4 tahap \textit{up-sampling} dengan 
+          \textit{transposed convolution} $2 \times 2$ + \textit{skip connection} 
+          dari encoder
+    \item \textbf{Output layer}: konvolusi $1 \times 1$ untuk memetakan ke 
+          2 kelas (forest/deforest)
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Detail arsitektur U-Net}
+\label{tab:unet_arch}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Tahap} & \textbf{Input Channels} & \textbf{Output Channels} & \textbf{Ukuran} \\
+\midrule
+Input & 5 & -- & $64 \times 64$ \\
+Encoder 1 & 5 & 32 & $64 \times 64$ \\
+Encoder 2 & 32 & 64 & $32 \times 32$ \\
+Encoder 3 & 64 & 128 & $16 \times 16$ \\
+Encoder 4 & 128 & 256 & $8 \times 8$ \\
+Bottleneck & 256 & 512 & $4 \times 4$ \\
+Decoder 4 & 512+256 & 256 & $8 \times 8$ \\
+Decoder 3 & 256+128 & 128 & $16 \times 16$ \\
+Decoder 2 & 128+64 & 64 & $32 \times 32$ \\
+Decoder 1 & 64+32 & 32 & $64 \times 64$ \\
+Output & 32 & 2 & $64 \times 64$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Total parameter model: $\sim$7,5 juta.
+
+\subsection{Pelatihan Model}
+
+\subsubsection{Fungsi Loss}
+
+Fungsi loss yang digunakan adalah \textit{Dice Loss} yang dirancang untuk 
+menangani ketidakseimbangan kelas (\textit{class imbalance}):
+
+\begin{equation}
+    \label{eq:dice_loss}
+    \mathcal{L}_{Dice} = 1 - \frac{1}{C} \sum_{c=1}^{C} 
+    \frac{2 \sum_{i} p_{i,c} \cdot g_{i,c} + \epsilon}{\sum_{i} p_{i,c} + \sum_{i} g_{i,c} + \epsilon}
+\end{equation}
+
+dengan $C=2$ (jumlah kelas), $p_{i,c}$ adalah probabilitas prediksi 
+(setelah softmax), $g_{i,c}$ adalah \textit{ground truth} one-hot, 
+dan $\epsilon = 1,0$ adalah \textit{smoothing factor}.
+
+Piksel dengan label 255 (\textit{cloud regions}) diabaikan dalam perhitungan loss.
+
+\subsubsection{Hiperparameter}
+
+\begin{table}[H]
+\centering
+\caption{Hiperparameter pelatihan}
+\label{tab:hyperparams}
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Nilai} \\
+\midrule
+Jumlah epoch & 50 \\
+Batch size & 32 \\
+Learning rate awal & $1 \times 10^{-3}$ \\
+Scheduler & CosineAnnealingLR ($T_{max}=50$) \\
+Optimizer & AdamW ($\beta_1=0,9$, $\beta_2=0,999$) \\
+Weight decay & $1 \times 10^{-4}$ \\
+Input size & $5 \times 64 \times 64$ \\
+num\_workers & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Normalisasi Input}
+
+Setiap kanal input dinormalisasi sebagai berikut:
+
+\begin{itemize}[nosep]
+    \item \textbf{RGB}: $\text{piksel} / 255,0$ (rentang 0--1)
+    \item \textbf{NIR}: $\text{piksel} / 10000,0$ karena nilai \textit{surface 
+          reflectance} Sentinel-2 berkisar 0--10000
+    \item \textbf{NDVI}: langsung digunakan (rentang -1--1)
+\end{itemize}
+
+Piksel dengan nilai NaN (\textit{Not a Number}) akibat artefak data diganti 
+dengan 0 melalui fungsi \texttt{np.nan\_to\_num}.
+
+\subsubsection{Perangkat Keras}
+
+\begin{itemize}[nosep]
+    \item \textbf{GPU}: NVIDIA RTX 3060 (12 GB VRAM)
+    \item \textbf{Sistem Operasi}: Ubuntu 26.04 (WSL2 di Windows 11)
+    \item \textbf{CPU}: Intel (12 core)
+    \item \textbf{RAM}: 32 GB
+\end{itemize}
+
+Kecepatan pelatihan: $\sim$2,7 menit per epoch (360 iterasi train, 
+91 iterasi validasi per epoch).
+
+\subsection{Evaluasi}
+
+\subsubsection{Metrik}
+
+Empat metrik evaluasi digunakan:
+
+\begin{itemize}[nosep]
+    \item \textbf{Intersection over Union (IoU)}:
+    \begin{equation}
+        \text{IoU} = \frac{TP}{TP + FP + FN}
+    \end{equation}
+    
+    \item \textbf{Dice Coefficient}:
+    \begin{equation}
+        \text{Dice} = \frac{2 \times TP}{2 \times TP + FP + FN}
+    \end{equation}
+    
+    \item \textbf{Precision}:
+    \begin{equation}
+        \text{Precision} = \frac{TP}{TP + FP}
+    \end{equation}
+    
+    \item \textbf{Recall}:
+    \begin{equation}
+        \text{Recall} = \frac{TP}{TP + FN}
+    \end{equation}
+\end{itemize}
+
+dengan TP = \textit{True Positive}, FP = \textit{False Positive}, 
+FN = \textit{False Negative}.
+
+\subsubsection{Prosedur Validasi}
+
+Validasi dilakukan per epoch pada validation set (1 scene, 2.908 sampel). 
+Model dengan IoU validasi tertinggi disimpan sebagai \texttt{best.pth}. 
+Setelah seluruh epoch selesai, model final disimpan sebagai \texttt{final.pth}.
+
+Evaluasi akhir dilakukan pada test set (2 scene, 5.695 sampel) menggunakan 
+model terbaik.
+
+\section{Hasil dan Pembahasan}
+\label{sec:hasil}
+
+\subsection{Progres Pelatihan}
+
+\begin{table}[H]
+\centering
+\caption{Progres pelatihan per epoch}
+\label{tab:training_progress}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Epoch} & \textbf{Train Loss} & \textbf{Val Loss} & \textbf{Val IoU} \\
+\midrule
+1 & 0,1974 & 0,2753 & 0,3788 \\
+5 & 0,1775 & 0,2773 & 0,3726 \\
+\textbf{9} & \textbf{0,1759} & \textbf{0,2765} & \textbf{0,3831*} \\
+15 & 0,1704 & 0,2792 & 0,3628 \\
+25 & 0,1655 & 0,2928 & 0,3653 \\
+37 & 0,1598 & 0,2859 & 0,3649 \\
+50 & 0,1555 & 0,2865 & 0,3616 \\
+\bottomrule
+\multicolumn{4}{l}{\small *Model terbaik (\texttt{best.pth}) disimpan pada epoch ini}
+\end{tabular}
+\end{table}
+
+\textit{Train loss} menurun secara konsisten dari 0,1974 ke 0,1555, menunjukkan 
+model terus belajar. \textit{Val IoU} tertinggi dicapai pada epoch 9 sebesar 
+0,3831, setelah itu cenderung stagnan di kisaran 0,36.
+
+\subsection{Hasil Test Set}
+
+\begin{table}[H]
+\centering
+\caption{Metrik evaluasi pada test set}
+\label{tab:test_metrics}
+\begin{tabular}{lc}
+\toprule
+\textbf{Metrik} & \textbf{Nilai} \\
+\midrule
+IoU & 0,7256 \\
+Dice & 0,8410 \\
+Precision & 0,8340 \\
+Recall & 0,8480 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analisis Hasil}
+
+Terdapat perbedaan signifikan antara IoU validasi (0,38) dan IoU test (0,73). 
+Hal ini disebabkan oleh:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Stratifikasi berdasarkan scene}: Validation set hanya terdiri 
+          dari 1 scene (Mukomuko tahun 2019) yang memiliki karakteristik medan 
+          berbeda dengan scene-scene lain
+    \item \textbf{Karakteristik scene}: Scene validasi mungkin memiliki kondisi 
+          tutupan lahan, topografi, atau pola deforestasi yang lebih sulit 
+          dideteksi
+    \item \textbf{Distribusi IoU bimodal}: Distribusi IoU pada test set 
+          cenderung bimodal — banyak sampel dengan IoU sangat tinggi ($>0,9$) 
+          dan sangat rendah ($<0,3$)
+\end{enumerate}
+
+\subsection{Analisis Error}
+
+Tiga mode kegagalan utama teridentifikasi:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Miss (False Negative dominan)}: Model gagal mendeteksi area 
+          deforestasi yang kecil atau deforestasi halus. Ini umum terjadi pada 
+          deforestasi dengan ukuran di bawah 5 piksel atau perubahan NDVI 
+          yang tidak terlalu drastis.
+    \item \textbf{False Positive}: Model salah mengklasifikasikan area non-hutan 
+          sebagai deforestasi. Area yang sering menjadi FP meliputi:
+          \begin{itemize}[nosep]
+              \item Badan sungai kering atau tepi sungai
+              \item Area persawahan yang tidak berpohon
+              \item Lahan terbuka
+              \item Tepi awan (\textit{cloud edge}) yang lolos deteksi awan
+          \end{itemize}
+    \item \textbf{Boundary Error}: Model kurang presisi pada batas antara area 
+          hutan dan deforestasi. Ini adalah keterbatasan umum pada model 
+          segmentasi dengan resolusi piksel 10 meter.
+\end{enumerate}
+
+\section{Kesimpulan}
+\label{sec:kesimpulan}
+
+Penelitian ini berhasil mengembangkan pipeline deteksi deforestasi otomatis 
+berbasis U-Net pada citra Sentinel-2. Model mencapai IoU 0,7256 dan Dice 0,8410 
+pada test set, menunjukkan kelayakan pendekatan ini untuk deteksi deforestasi 
+skala operasional.
+
+Kontribusi utama penelitian ini meliputi:
+
+\begin{enumerate}[nosep]
+    \item Pipeline lengkap dari akuisisi GEE hingga inferensi
+    \item Metode \textit{pseudo-labeling} berbasis perubahan NDVI temporal 
+          yang memungkinkan pembuatan dataset tanpa anotasi manual
+    \item Heuristik deteksi awan berbasis RGB dan NDVI sebagai solusi atas 
+          kanal QA60 yang tidak berfungsi
+    \item Analisis komprehensif mode kegagalan model pada berbagai kondisi 
+          deforestasi
+\end{enumerate}
+
+Untuk pengembangan selanjutnya, beberapa arah penelitian yang potensial meliputi:
+
+\begin{itemize}[nosep]
+    \item \textbf{Augmentasi data}: Rotasi, flipping, dan \textit{color jitter} 
+          untuk meningkatkan generalisasi
+    \item \textbf{Ekstraksi fitur temporal}: Menggunakan rangkaian multi-temporal 
+          daripada pasangan baseline-deforest
+    \item \textbf{Arsitektur lanjutan}: Swin U-Net atau Transformer-based 
+          segmentation untuk menangkap konteks global
+    \item \textbf{Fusion dengan data SAR}: Sentinel-1 (radar) untuk menembus 
+          tutupan awan
+\end{itemize}
+
+\bibliographystyle{ieeetr}
+\begin{thebibliography}{3}
+
+\bibitem{fao2020}
+FAO,
+\emph{Global Forest Resources Assessment 2020: Main report},
+Rome, 2020.
+
+\bibitem{drusch2012sentinel}
+M.~Drusch et al.,
+``Sentinel-2: ESA's Optical High-Resolution Mission for GMES Operational Services,''
+\emph{Remote Sensing of Environment}, vol.~120, pp.~25--36, 2012.
+
+\bibitem{ronneberger2015unet}
+O.~Ronneberger, P.~Fischer, and T.~Brox,
+``U-Net: Convolutional Networks for Biomedical Image Segmentation,''
+in \emph{Proc. MICCAI}, 2015, pp.~234--241.
+
+\end{thebibliography}
+
+\end{document}
