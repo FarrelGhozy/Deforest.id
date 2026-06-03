@@ -34,6 +34,7 @@ nav:
   - Data Format: data-format.md
   - Annotation Pipeline: annotation-pipeline.md
   - Training Pipeline: training-pipeline.md
+  - Results: results.md
   - Getting Started: getting-started.md
 
 markdown_extensions:
