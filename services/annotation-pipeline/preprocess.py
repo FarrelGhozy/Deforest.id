@@ -24,8 +24,11 @@ def cloud_mask_sentinel2(data: np.ndarray, meta: dict,
             next(b for b in ["QA60", "MSK_CLDPRB"] if b in meta["descriptions"])
         )
         qa = data[qa_idx]
-        cloud = (qa & (1 << 10)) | (qa & (1 << 11))
-        return cloud.astype(bool)
+        if np.issubdtype(qa.dtype, np.floating):
+            return (qa > 0.5).astype(bool)
+        cloud = (qa.astype(np.int32) & (1 << 10)).astype(bool) | \
+                (qa.astype(np.int32) & (1 << 11)).astype(bool)
+        return cloud
     return np.zeros(data.shape[1:], dtype=bool)
 
 
