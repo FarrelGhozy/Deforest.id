@@ -34,12 +34,12 @@ pelaporan nasional dan internasional. Hasil awal menunjukkan IoU~0,73
 dan Dice~0,84 pada data uji terpisah, dengan deteksi andal pada
 0,64~ha per tile. Sistem ini dirancang untuk penyebaran cepat di
 $\sim$94~juta hektar kawasan hutan Indonesia tanpa survei lapangan,
-mendukung target FOLU Net Sink 2030.
+mendukung target FOLU Net Sink 2030 \cite{menlhk2022folu}.
 
 \section{Latar Belakang}
 Indonesia memiliki hutan tropis terbesar ketiga di dunia
 ($\sim94$~juta ha), namun kehilangan $\sim300$~ribu ha hutan alam
-setiap tahunnya \cite{fao2022sofo}. Hutan lindung -- yang mengatur
+setiap tahunnya \cite{hansen2013high,fao2022sofo}. Hutan lindung -- yang mengatur
 daerah aliran sungai, mencegah erosi, dan menjaga kesuburan tanah
 bagi jutaan orang -- sangat rentan terhadap deforestasi skala kecil
 yang luput dari sistem monitoring resolusi kasar. Dampak kumulatifnya
@@ -53,11 +53,11 @@ Sistem operasional saat ini tidak dapat menjembatani kesenjangan skala
 ini. Global Forest Watch beroperasi pada resolusi 30~m (Landsat),
 melewatkan pembukaan lahan di bawah 0,9~ha. Sistem SIMONTANA Indonesia
 menggunakan unit pemetaan minimum 6,25~ha untuk pelaporan REDD+
-\cite{unfccc2022indonesia} -- tiga kali lipat ambang batas 2~ha di
+\cite{gfw2024simontana,unfccc2022indonesia} -- tiga kali lipat ambang batas 2~ha di
 mana dampak ekologis menjadi parah. Lebih krusial lagi, tidak ada
 sistem yang menyediakan \textit{prioritasi peringatan otomatis} untuk
 kawasan lindung, yang secara hukum memerlukan pengawasan lebih ketat
-berdasarkan UU~No.~41/1999. Program NICFI Norwegia menyediakan citra
+berdasarkan UU~No.~41/1999. Program NICFI Norwegia \cite{nicfi2020} menyediakan citra
 resolusi tinggi tetapi hanya pada interval bulanan dan tanpa analisis
 otomatis. Inti masalahnya adalah kesenjangan resolusi monitoring:
 deforestasi pada skala 0,5--2~ha terlalu kecil untuk sensor kasar dan
@@ -65,8 +65,8 @@ terlalu besar untuk diabaikan secara ekologis.
 
 \section{Deskripsi Riset}
 Kami menyajikan pipeline ujung-ke-ujung yang menggabungkan citra
-multi-spektral Sentinel-2 (10~m, revisit 5 hari, akses terbuka)
-dengan arsitektur deep learning U-Net. Pipeline ini sepenuhnya otonom:
+multi-spektral Sentinel-2 (10~m, revisit 5 hari, akses terbuka) \cite{drusch2012sentinel2}
+dengan arsitektur deep learning U-Net \cite{ronneberger2015unet}. Pipeline ini sepenuhnya otonom:
 menghasilkan data pelatihannya sendiri, mendeteksi awan tanpa
 bergantung pada band QA60 yang rusak, dan mengeluarkan peringatan
 keparahan berbasis area yang langsung terpetakan ke ambang kebijakan.

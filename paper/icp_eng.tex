@@ -33,12 +33,12 @@ and international reporting standards. Initial results demonstrate
 0.73~IoU and 0.84~Dice on hold-out test scenes, with reliable
 detection at 0.64~ha per chip. The system is designed for rapid
 deployment across Indonesia's $\sim$94~Mha forest estate without
-ground surveys, supporting the FOLU Net Sink 2030 target.
+ground surveys, supporting the FOLU Net Sink 2030 target \cite{menlhk2022folu}.
 
 \section{Problem Statement}
 Indonesia has the third-largest tropical forest area globally
 ($\sim94$~Mha), yet loses $\sim300$~kha of natural forest annually
-\cite{fao2022sofo}. Protected forests (\textit{hutan lindung}) --
+\cite{hansen2013high,fao2022sofo}. Protected forests (\textit{hutan lindung}) --
 which regulate watersheds, prevent erosion, and maintain soil
 fertility for millions of people -- are especially vulnerable to
 small-scale deforestation that evades coarse-resolution monitoring
@@ -52,11 +52,11 @@ Current operational systems cannot address this scale mismatch.
 Global Forest Watch operates at 30~m resolution (Landsat), missing
 sub-0.9~ha clearings. Indonesia's SIMONTANA system uses a minimum
 mapping unit of 6.25~ha for REDD+ reporting
-\cite{unfccc2022indonesia} -- three times the 2~ha threshold above
+\cite{gfw2024simontana,unfccc2022indonesia} -- three times the 2~ha threshold above
 which ecological impacts become severe. Crucially, no existing
 system provides \textit{automated alert prioritization} for
 protected zones, which legally require stricter oversight under
-Indonesian law (UU~No.~41/1999). Norway's NICFI program provides
+Indonesian law (UU~No.~41/1999). Norway's NICFI program \cite{nicfi2020} provides
 high resolution imagery but only at monthly intervals and without
 automated analysis. The core problem is a monitoring resolution
 gap: deforestation occurring at 0.5--2~ha scales is simultaneously
@@ -64,8 +64,8 @@ too small for coarse sensors and too large to ignore ecologically.
 
 \section{Research Description}
 We present an end-to-end pipeline that combines Sentinel-2
-multi-spectral imagery (10~m, 5-day revisit, open access) with a
-U-Net deep learning architecture. The pipeline is fully autonomous:
+multi-spectral imagery (10~m, 5-day revisit, open access) \cite{drusch2012sentinel2} with a
+U-Net deep learning architecture \cite{ronneberger2015unet}. The pipeline is fully autonomous:
 it generates its own training data, detects clouds without relying
 on defective QA60 bands, and outputs area-based severity alerts
 directly mappable to policy thresholds.
