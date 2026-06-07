@@ -110,9 +110,15 @@ noise. This approach exploits the fact that deforestation causes
 a sharp, sustained drop in NDVI that is distinct from seasonal
 variation (which tends to be gradual and bidirectional). The
 threshold $-0.15$ was calibrated against visual interpretation of
-50 random samples across 3 scenes. This pseudo-labeling enables
-scalability: a model trained on one region can be fine-tuned for
-another without costly field campaigns.
+50 random samples across 3 scenes and aligns with the range of
+$-0.10$ to $-0.20$ consistently used in remote sensing literature
+for significant vegetation change detection \cite{hansen2013high}.
+Using L1C top-of-atmosphere data (rather than L2A surface
+reflectance) is acceptable here because temporal differencing
+cancels out atmospheric bias in the subtraction, making absolute
+calibration less critical than for single-image analysis. This
+pseudo-labeling enables scalability: a model trained on one region
+can be fine-tuned for another without costly field campaigns.
 
 \subsection{Early Warning Framework}
 Each Sentinel-2 pixel represents $10\times10$~m = 0.01~ha, enabling
