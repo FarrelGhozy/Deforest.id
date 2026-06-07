@@ -33,9 +33,13 @@ warning framework (Waspada/Siaga/Kritis) with protected-zone alert
 amplification that directly maps to national and international
 policy standards, and (iii)~practical solutions to local data
 constraints (defective QA60 bands, L1C top-of-atmosphere data).
-Initial results demonstrate 0.73~IoU and 0.84~Dice on hold-out
-test scenes, with spatially coherent segmentation at 0.64~ha per
-chip --- a 900-fold improvement over Indonesia's current 6.25~ha
+Initial results demonstrate 0.73~IoU and 0.84~Dice against
+pseudo-labels on hold-out test scenes --- a 31-point F1 improvement
+over direct NDVI thresholding (0.53~$\to$~0.84), indicating that
+the U-Net learns spatial context beyond pixel-wise spectral change.
+The pipeline produces spatially coherent segmentation of
+NDVI-derived deforestation indicators at 0.64~ha per chip,
+providing a 900-fold improvement over Indonesia's current 6.25~ha
 REDD+ minimum reporting unit. The pipeline is designed for future
 scaling across multiple Indonesian forest types, supporting the
 FOLU Net Sink 2030 target \cite{menlhk2022folu}.
@@ -210,11 +214,22 @@ compatibility. On 5,695 hold-out chips from 2 unseen scenes:
     \item \textbf{Precision:} 0.8340
     \item \textbf{Recall:} 0.8480
 \end{itemize}
-The system reliably detects deforestation patches at 64~pixels
-(0.64~ha), operating at our minimum alert threshold. By comparison,
-a simple NDVI temporal threshold ($\Delta\text{NDVI}<-0.15$) alone
-achieves only $\sim$0.53~F1 on the same test set, confirming that
-the U-Net learns spatial context beyond spectral change.
+The system produces spatially coherent segmentation at 64~pixels
+(0.64~ha), operating at our minimum alert threshold.
+
+It is important to note that these metrics measure agreement
+between U-Net predictions and NDVI-derived pseudo-labels, not
+against field ground truth. The IoU of 0.73 therefore represents
+the model's ability to replicate and smooth the NDVI thresholding
+decision with spatial context --- not absolute deforestation
+detection accuracy. Nevertheless, the significant F1 improvement
+from 0.53 (direct pixel-wise NDVI threshold) to 0.84 (U-Net) on
+the identical test set demonstrates that the model learns spatial
+patterns inaccessible to independent pixel thresholding.
+Validation against independent ground truth (very-high-resolution
+imagery or field data) is planned to confirm whether these spatial
+patterns correlate with actual deforestation rather than mere NDVI
+replication.
 
 \section{Impact and Scalability}
 The proposed system would provide Indonesia's Ministry of
