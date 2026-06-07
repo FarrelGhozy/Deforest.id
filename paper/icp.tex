@@ -23,18 +23,22 @@ Using U-Net and Sentinel-2 Imagery} \\
 \thispagestyle{empty}
 
 \paragraph{Abstract.}
-We propose an automated deforestation alert system for Indonesian
-protected forests (\textit{hutan lindung}) using a U-Net deep
-learning model on 10~m Sentinel-2 imagery. The key innovation is
-a fully autonomous pipeline: training labels are generated via
-temporal NDVI differencing, eliminating manual annotation. An
-integrated three-level early warning framework (Waspada/Siaga/Kritis)
-with protected-zone alert amplification directly maps to national
-and international reporting standards. Initial results demonstrate
-0.73~IoU and 0.84~Dice on hold-out test scenes, with reliable
-detection at 0.64~ha per chip. The system is designed for rapid
-deployment across Indonesia's $\sim$94~Mha forest estate without
-ground surveys, supporting the FOLU Net Sink 2030 target \cite{menlhk2022folu}.
+We propose an automated deforestation early warning system for
+Indonesian protected forests (\textit{hutan lindung}) using a U-Net
+deep learning model on 10~m Sentinel-2 imagery. The core
+contribution is a combination of: (i)~a fully autonomous pipeline
+that generates training pseudo-labels via temporal NDVI
+differencing without manual annotation, (ii)~a three-level early
+warning framework (Waspada/Siaga/Kritis) with protected-zone alert
+amplification that directly maps to national and international
+policy standards, and (iii)~practical solutions to local data
+constraints (defective QA60 bands, L1C top-of-atmosphere data).
+Initial results demonstrate 0.73~IoU and 0.84~Dice on hold-out
+test scenes, with spatially coherent segmentation at 0.64~ha per
+chip --- a 900-fold improvement over Indonesia's current 6.25~ha
+REDD+ minimum reporting unit. The pipeline is designed for future
+scaling across multiple Indonesian forest types, supporting the
+FOLU Net Sink 2030 target \cite{menlhk2022folu}.
 
 \section{Problem Statement}
 Indonesia has the third-largest tropical forest area globally
@@ -70,6 +74,21 @@ U-Net deep learning architecture \cite{ronneberger2015unet}. The pipeline is ful
 it generates its own training data, detects clouds without relying
 on defective QA60 bands, and outputs area-based severity alerts
 directly mappable to policy thresholds.
+
+The novelty lies not in any single technique --- U-Net for
+satellite segmentation and NDVI thresholding are individually
+well-established --- but in their \textbf{integration for the
+Indonesian context}: (a)~a fully autonomous training pipeline that
+requires zero manual annotation, operating on L1C data without
+atmospheric correction (made possible by temporal differencing
+that cancels atmospheric bias), (b)~an alert framework whose three
+severity levels are directly traceable to specific FAO, ecological,
+and Indonesian regulatory instruments, and (c)~practical
+engineering solutions to documented data quality issues specific
+to GEE-extracted Sentinel-2 imagery over Indonesia (non-functional
+QA60, variable haze from peatland fires). To our knowledge, no
+existing study combines all three elements for Indonesian
+protected forests.
 
 \subsection{Autonomous Training via Pseudo-Labeling}
 The core technical innovation is a temporal NDVI differencing
@@ -137,7 +156,14 @@ We implement a simple but effective heuristic:
 \]
 This captures thick cumulus clouds; residual thin clouds and
 shadows are handled by the Dice loss's robustness to label noise
-during training.
+during training. We note two limitations: (1)~haze from land
+fires --- prevalent in Riau and Kalimantan during dry season ---
+is not detected by RGB thresholds alone and may produce false
+deforestation signals in NDVI differencing, and (2)~cirrus clouds
+with partial transmission alter spectral values systematically.
+Integration with FIRMS (Fire Information for Resource Management
+System) fire hotspot data is planned to flag haze-contaminated
+chips for exclusion or separate processing.
 
 \subsection{Implementation Pipeline}
 The pipeline operates in six stages:
@@ -153,10 +179,16 @@ The pipeline operates in six stages:
     \item \textbf{Pseudo-labeling}: $\Delta\text{NDVI}<-0.15$ with
           morphological closing ($3\times3$) generates masks.
     \item \textbf{Training}: U-Net (4 encoder/decoder stages,
-          32--512 filters, 5-channel input), Dice loss, Adam
-          ($1\times10^{-4}$), batch 64, 50 epochs, split
+          32--512 filters, 5-channel input: B4 (Red), B3 (Green),
+          B2 (Blue), B8 (NIR), and derived NDVI --- selected
+          because they cover both visible and vegetation-sensitive
+          spectra while keeping model lightweight), Dice loss,
+          Adam ($1\times10^{-4}$), batch 64, 50 epochs, split
           11,500/2,908/5,695. NIR band normalized to $[0,1]$
-          via division by 10,000.
+          via division by 10,000. Tile size $64\times64$ (640~m
+          ground extent) was chosen to match the minimum alert
+          threshold of 0.64~ha while providing sufficient spatial
+          context for connected-component analysis.
     \item \textbf{Inference}: Sliding window (50\% overlap),
           connected-component labeling, area aggregation, alert
           classification per threshold.
@@ -186,9 +218,11 @@ at 0.01~ha effective resolution -- a 900-fold improvement over the
 
 \paragraph{Zero annotation cost.}
 The pseudo-labeling pipeline generates training labels from any
-Sentinel-2 image pair, enabling scaling to all 38 Indonesian
-provinces without field surveys. Estimated label generation cost
-per province: $\sim$30 min of cloud compute for image pair
+Sentinel-2 image pair, enabling geographic scaling without field
+surveys. As a future direction, extension to additional Indonesian
+forest types (peat swamp, mangrove, montane) would require
+validation on representative scenes from each biome; the estimated
+compute cost per new region is $\sim$30 min for image pair
 processing.
 
 \paragraph{Commodity hardware feasibility.}

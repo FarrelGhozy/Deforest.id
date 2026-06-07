@@ -40,15 +40,17 @@ Menggunakan U-Net dan Citra Sentinel-2} \\
 
 \begin{abstract}
 Deforestasi merupakan ancaman serius terhadap keberlanjutan ekologis di Indonesia,
-khususnya pada kawasan hutan lindung. Penelitian ini mengembangkan sistem deteksi
-deforestasi otomatis menggunakan arsitektur U-Net pada citra satelit Sentinel-2
-dengan 5 kanal masukan (RGB + NIR + NDVI). Model dilatih pada 11.500 sampel dari
-4 scene, divalidasi pada 2.908 sampel, dan diuji pada 5.695 sampel yang berasal
-dari 7 scene di Indonesia. Hasil pengujian menunjukkan IoU 0,7256, Dice 0,8410,
-Precision 0,8340, dan Recall 0,8480. Makalah ini juga merumuskan kerangka ambang
-batas (\textit{threshold}) peringatan dini deforestasi berdasarkan definisi FAO,
-regulasi nasional Indonesia, serta temuan ekologi terbaru mengenai dampak fragmentasi
-hutan skala kecil terhadap hilangnya karbon dan keanekaragaman hayati.
+khususnya pada kawasan hutan lindung. Penelitian ini mengembangkan pipeline deteksi
+deforestasi semi-otomatis menggunakan arsitektur U-Net pada citra satelit Sentinel-2
+dengan 5 kanal masukan (RGB + NIR + NDVI), di mana label pelatihan dihasilkan secara
+otomatis melalui temporal NDVI differencing tanpa anotasi manual. Model dilatih pada
+11.500 sampel dari 4 scene, divalidasi pada 2.908 sampel, dan diuji pada 5.695 sampel
+yang berasal dari 7 scene di Indonesia. Evaluasi terhadap pseudo-label menunjukkan
+IoU 0,7256, Dice 0,8410, Precision 0,8340, dan Recall 0,8480. Makalah ini juga
+merumuskan kerangka ambang batas (\textit{threshold}) peringatan dini deforestasi
+berdasarkan definisi FAO, regulasi nasional Indonesia, serta temuan ekologi terbaru
+mengenai dampak fragmentasi hutan skala kecil terhadap hilangnya karbon dan
+keanekaragaman hayati.
 \end{abstract}
 
 \section{Pendahuluan}
@@ -82,6 +84,18 @@ otomatis berbasis deep learning U-Net pada citra Sentinel-2, (2) merumuskan kera
 ambang batas peringatan dini (\textit{alert threshold framework}) yang didasarkan
 pada standar internasional, regulasi nasional, dan temuan ekologis, serta
 (3) mengevaluasi kinerja sistem dalam konteks deteksi dini deforestasi skala kecil.
+
+Kebaruan penelitian ini tidak terletak pada teknik individual -- U-Net untuk
+segmentasi satelit dan thresholding NDVI masing-masing sudah mapan -- melainkan
+pada integrasi ketiganya dalam konteks Indonesia: (a) pipeline pelatihan yang
+sepenuhnya otonom tanpa anotasi manual, beroperasi pada data L1C tanpa koreksi
+atmosfer (dimungkinkan oleh temporal differencing yang membatalkan bias atmosfer
+secara diferensial), (b) kerangka peringatan yang tiga levelnya dapat dilacak
+langsung ke instrumen FAO, temuan ekologis, dan regulasi Indonesia, serta
+(c) solusi rekayasa terhadap masalah kualitas data spesifik pada citra Sentinel-2
+yang diekstrak melalui GEE (kanal QA60 tidak berfungsi, haze variabel dari
+kebakaran gambut). Sejauh pengetahuan penulis, belum ada studi yang menggabungkan
+ketiga elemen ini secara bersamaan untuk hutan lindung Indonesia.
 
 \section{Tinjauan Pustaka}
 \label{sec:tinjauan}
@@ -530,6 +544,14 @@ deteksi awan dilakukan dengan heuristik RGB-NDVI:
 Piksel awan diberi label \texttt{IGNORE = 255} dan tidak diikutsertakan dalam
 perhitungan loss selama pelatihan.
 
+Perlu dicatat bahwa heuristik ini hanya menangkap awan tebal; kabut asap
+(\textit{haze}) dari kebakaran gambut -- yang lazim terjadi di Riau dan
+Kalimantan pada musim kemarau -- serta awan tipis (\textit{cirrus}) dengan
+transmisi parsial tidak terdeteksi dan dapat menghasilkan sinyal palsu pada
+differencing NDVI. Integrasi dengan data hotspot FIRMS (Fire Information
+for Resource Management System) direncanakan untuk menandai chip yang
+terkontaminasi haze pada pengembangan selanjutnya.
+
 \subsection{Pembuatan Pseudo-label Deforestasi}
 
 Label deforestasi dibuat berdasarkan perubahan NDVI temporal antara citra
@@ -572,8 +594,16 @@ Total & 20.103 & 7 \\
 
 \subsection{Arsitektur U-Net}
 
-Arsitektur U-Net yang digunakan memiliki 5 kanal input (RGB + NIR + NDVI) dan
-2 kanal output (forest / deforest). Detail arsitektur disajikan dalam
+Arsitektur U-Net yang digunakan memiliki 5 kanal input dan
+2 kanal output (forest / deforest). Lima kanal tersebut terdiri dari
+B4 (Red, 665~nm), B3 (Green, 560~nm), B2 (Blue, 490~nm), B8 (NIR, 842~nm),
+dan NDVI turunan. Pemilihan ini mencakup spektrum kasatmata untuk deteksi
+perubahan tutupan lahan umum dan NIR+NDVI yang sensitif terhadap stres
+vegetasi, tanpa menyertakan SWIR (Band~11/12) untuk menjaga model tetap
+ringan. Ukuran tile $64 \times 64$ (640~m cakupan lapangan) dipilih agar
+setiap chip mencakup area yang cukup untuk analisis komponen terhubung
+pada ambang Waspada (0,64~ha) sekaligus memberikan konteks spasial yang
+memadai untuk segmentasi. Detail arsitektur disajikan dalam
 Tabel~\ref{tab:unet} dan ilustrasi pada Gambar~\ref{fig:training_curve}.
 
 \begin{table}[H]
