@@ -107,7 +107,11 @@ keparahan berbasis area yang langsung terpetakan ke ambang kebijakan \cite{drusc
 \subsection{Pelatihan Otonom melalui Pseudo-Labeling}
 Inovasi teknis inti adalah metode NDVI temporal differencing yang
 menghasilkan label pelatihan berkualitas tinggi tanpa anotasi manual.
-Untuk setiap lokasi, kami menghitung \cite{tucker1979red}:
+NDVI dihitung dari kanal merah (Red) dan inframerah dekat (NIR) \cite{tucker1979red}:
+\begin{equation}
+\text{NDVI} = \frac{\text{NIR} - \text{Red}}{\text{NIR} + \text{Red}}
+\end{equation}
+Untuk setiap pasangan temporal, kami menghitung selisih NDVI:
 \begin{equation}
 \Delta\text{NDVI}(x,y) = \text{NDVI}_{\text{sebelum}} - \text{NDVI}_{\text{sesudah}}
 \end{equation}
@@ -123,7 +127,9 @@ Penutupan morfologis (kernel $3\times3$) menghilang derau
 salt-and-pepper. Pendekatan ini memanfaatkan fakta bahwa deforestasi
 menyebabkan penurunan NDVI yang tajam dan berkelanjutan, berbeda dari
 variasi musiman (yang cenderung bertahap dan dua arah). Ambang batas
-$-0,15$ dikalibrasi terhadap interpretasi visual dari 50 sampel acak
+$-0,15$ dipilih karena berada dalam rentang threshold yang umum
+digunakan untuk deteksi perubahan vegetasi \cite{gandhi2015ndvi} dan
+dikalibrasi terhadap interpretasi visual dari 50 sampel acak
 di 3 scene. Pseudo-labeling ini memungkinkan skalabilitas: model yang
 dilatih di satu wilayah dapat di-fine-tune untuk wilayah lain tanpa
 kampanye lapangan yang mahal \cite{gonzalez2008digital}.
@@ -152,9 +158,10 @@ Tingkat & Area (ha) & Piksel \\
 \end{tabular}
 \end{table}
 
-Baseline 0,64~ha sejajar dengan definisi minimum hutan FAO (0,5~ha),
-2~ha dengan ambang fragmentasi ekologis \cite{renno2016amazon}, dan
-6,25~ha dengan minimum REDD+ Indonesia.
+Baseline 0,64~ha sejajar dengan definisi minimum hutan FAO (0,5~ha)
+\cite{fao2020fra}, 2~ha dengan ambang fragmentasi ekologis
+\cite{renno2016amazon}, dan 6,25~ha dengan minimum REDD+ Indonesia
+\cite{gfw2024simontana}.
 Untuk hutan lindung, amplifikasi berbasis area diterapkan:
 \textit{Siaga} meningkat menjadi \textit{Kritis}, \textit{Waspada}
 meningkat menjadi \textit{Siaga}. Ini memastikan kawasan lindung
@@ -179,7 +186,8 @@ Pipeline beroperasi dalam enam tahap \cite{kingma2015adam,shapiro2001computer}:
           Kalimantan Tengah (2019--2024), diunduh melalui Google
           Earth Engine.
     \item \textbf{Tiling}: Scene dibagi menjadi blok $512\times512$,
-          lalu tile $64\times64$ dengan overlap 50\%, menghasilkan
+          lalu tile $64\times64$ dengan overlap 50\% mengikuti
+          strategi overlap-tile \cite{ronneberger2015unet}, menghasilkan
           40.484 tile baseline dan 20.103 tile deforestasi.
     \item \textbf{Cloud masking}: Filter heuristik diterapkan per
           tile; tile yang terkontaminasi awan ditandai untuk
