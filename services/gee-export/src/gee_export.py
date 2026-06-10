@@ -56,8 +56,19 @@ def build_composite(
         .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloud_filter))
     )
 
-    composite = collection.median().clip(aoi)
-    return composite.select(list(EXPORT.band_order))
+    def mask_clouds(img):
+        qa = img.select('QA60')
+        cloud = qa.bitwiseAnd(1 << 10)
+        cirrus = qa.bitwiseAnd(1 << 11)
+        clear = cloud.eq(0).And(cirrus.eq(0))
+        return img.updateMask(clear)
+
+    cleaned = collection.map(mask_clouds)
+    clear_count = cleaned.select('B2').count().rename('CLEAR_COUNT')
+    composite = cleaned.median().clip(aoi)
+    clear_count = clear_count.clip(aoi)
+
+    return composite.addBands(clear_count).select(list(EXPORT.band_order))
 
 
 def export_composite(

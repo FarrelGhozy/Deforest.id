@@ -8,7 +8,7 @@ class ExportConfig:
     gee_project: str = os.getenv("GEE_PROJECT", "deforestprojek")
     gee_credentials: str = os.getenv("GEE_CREDENTIALS", "")
 
-    band_order: tuple = ("B2", "B3", "B4", "B8", "QA60")
+    band_order: tuple = ("B2", "B3", "B4", "B8", "CLEAR_COUNT")
     rgb_bands: tuple = ("B4", "B3", "B2")
     red_band: str = "B4"
     nir_band: str = "B8"

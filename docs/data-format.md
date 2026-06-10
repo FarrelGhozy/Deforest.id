@@ -11,7 +11,7 @@
 |-----------|-------|
 | Platform | Google Earth Engine |
 | Satellite | Sentinel-2 (Level-2A) |
-| Bands | B2, B3, B4, B8, QA60 |
+| Bands | B2, B3, B4, B8, CLEAR_COUNT |
 | Resolusi | 10m (B2–B8) |
 | Area | Kalimantan (AOI sesuai batas konsesi GFW) |
 | Temporal | Multi-temporal (minimal 2 titik waktu: T1 dan T2) |
@@ -33,7 +33,7 @@ data/annotation/raw/
 |----------|-------------|
 | Format | GeoTIFF, 32-bit float |
 | CRS | EPSG:4326 (WGS84) |
-| Bands | 5 bands: B2, B3, B4, B8, QA60 |
+| Bands | 5 bands: B2, B3, B4, B8, CLEAR_COUNT |
 | NoData | 0 |
 | Region | Clip ke AOI |
 
@@ -45,7 +45,7 @@ data/annotation/raw/
 | 1 | B3 | Green — 10m |
 | 2 | B4 | Red — 10m |
 | 3 | B8 | NIR — 10m |
-| 4 | QA60 | Cloud mask — 60m |
+| 4 | CLEAR_COUNT | Jumlah observasi bersih per piksel (setelah cloud masking per-scene) |
 
 !!! warning "Urutan Band"
     Urutan bands HARUS sesuai tabel. Annotation pipeline membaca band berdasarkan index, bukan nama.
@@ -88,9 +88,18 @@ def export_scene(aoi, date_start, date_end, description):
         .filterDate(date_start, date_end)
         .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 30))
     )
-    image = collection.median()
-    bands = ["B2", "B3", "B4", "B8", "QA60"]
-    selected = image.select(bands)
+    def mask_clouds(img):
+        qa = img.select('QA60')
+        cloud = qa.bitwiseAnd(1 << 10)
+        cirrus = qa.bitwiseAnd(1 << 11)
+        clear = cloud.eq(0).And(cirrus.eq(0))
+        return img.updateMask(clear)
+
+    cleaned = collection.map(mask_clouds)
+    clear_count = cleaned.select('B2').count().rename('CLEAR_COUNT')
+    image = cleaned.median()
+    bands = ["B2", "B3", "B4", "B8", "CLEAR_COUNT"]
+    selected = image.addBands(clear_count).select(bands)
 
     task = ee.batch.Export.image.toDrive(
         image=selected,
@@ -109,7 +118,7 @@ def export_scene(aoi, date_start, date_end, description):
 ## Checklist
 
 - [ ] GeoTIFF sudah di-clip ke AOI
-- [ ] Band order: B2, B3, B4, B8, QA60
+- [ ] Band order: B2, B3, B4, B8, CLEAR_COUNT
 - [ ] CRS: EPSG:4326
 - [ ] NoData: 0
 - [ ] Nama file: `{region}_{YYYY}_{MM}_{DD}.tif`

@@ -25,6 +25,11 @@ def get_band_names(path: Path) -> list:
 def cloud_mask_sentinel2(
     data: np.ndarray, band_names: list, threshold: float = 0.3
 ) -> np.ndarray:
+    if "CLEAR_COUNT" in band_names:
+        idx = band_names.index("CLEAR_COUNT")
+        clear_count = data[idx]
+        return (clear_count < 3).astype(bool)
+
     qa_band = None
     for candidate in ["QA60", "MSK_CLDPRB"]:
         if candidate in band_names:
