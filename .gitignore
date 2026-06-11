@@ -68,6 +68,12 @@ Desktop.ini
 preview_*.png
 preview.png
 
+# --- W&B logs ---
+wandb/
+
+# --- Service account keys ---
+config/*.json
+
 # --- ML outputs ---
 data/training/unet/predictions/
 data/training/unet/comparisons/

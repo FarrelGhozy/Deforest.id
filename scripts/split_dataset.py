@@ -3,15 +3,15 @@
 Usage:
     uv run python scripts/split_dataset.py \
         --chips-dir data/training/unet/chips \
-        --labels-dir data/training/unet/labels_ndvi \
+        --labels-dir data/training/unet/labels_gfw \
         --output-dir data/training/unet \
         --train-ratio 0.70 --val-ratio 0.15 --test-ratio 0.15
 """
 
 import argparse
 import json
-import os
 import re
+import shutil
 from collections import defaultdict
 from pathlib import Path
 
@@ -19,10 +19,10 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 MASK_PATTERN = re.compile(
-    r'(?P<scene>.+?)_deforest_(?P<row>\d+)_(?P<col>\d+)_mask\.npz$'
+    r'(?P<scene>.+?)_(?P<kind>[a-z]+)_(?P<row>\d+)_(?P<col>\d+)_mask\.npz$'
 )
 CHIP_PATTERN = re.compile(
-    r'(?P<scene>.+?)_deforest_(?P<row>\d+)_(?P<col>\d+)\.npz$'
+    r'(?P<scene>.+?)_(?P<kind>[a-z]+)_(?P<row>\d+)_(?P<col>\d+)\.npz$'
 )
 
 
@@ -43,7 +43,7 @@ def main():
 
     # Find all mask files → these define the dataset (one sample per mask)
     mask_files = sorted(labels_path.glob("*_mask.npz"))
-    print(f"Found {len(mask_files)} mask files")
+    print(f"Splitting {len(mask_files)} mask files...")
 
     # Group by scene for stratified split
     scene_map = defaultdict(list)
@@ -67,7 +67,7 @@ def main():
         row, col = int(m.group("row")), int(m.group("col"))
         key = (scene, row, col)
 
-        chip_name = f"{scene}_deforest_{row}_{col}.npz"
+        chip_name = f"{scene}_{m.group('kind')}_{row}_{col}.npz"
         chip_path = chips_path / chip_name
         if not chip_path.exists():
             missing_chip += 1
@@ -76,7 +76,7 @@ def main():
         entries.append((scene, key, chip_path, mf))
         matched += 1
 
-    print(f"Matched {matched} chip↔mask pairs, {missing_chip} missing chips")
+    print(f"Matched {matched} chip-mask pairs, {missing_chip} missing chips")
 
     # Group entries by scene for stratified split
     scene_entries = defaultdict(list)
@@ -120,9 +120,17 @@ def main():
             mask_dst = output_path / split_name / "masks" / mask_path.name
 
             if not img_dst.exists():
-                img_dst.symlink_to(os.path.relpath(chip_path, img_dst.parent))
+                try:
+                    shutil.copy2(chip_path, img_dst)
+                except PermissionError:
+                    print(f"  SKIP: {chip_path.name} (locked)")
+                    continue
             if not mask_dst.exists():
-                mask_dst.symlink_to(os.path.relpath(mask_path, mask_dst.parent))
+                try:
+                    shutil.copy2(mask_path, mask_dst)
+                except PermissionError:
+                    print(f"  SKIP: {mask_path.name} (locked)")
+                    continue
 
             manifest[split_name].append({
                 "stem": chip_path.stem,

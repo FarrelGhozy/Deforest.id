@@ -50,6 +50,7 @@ def process_geotiff(geotiff_path: Path) -> list:
 
         tile_rgb = rgb[:, y : y + TILE.chip_size, x : x + TILE.chip_size]
         tile_nir = nir[y : y + TILE.chip_size, x : x + TILE.chip_size]
+        tile_cloud_mask = tile_cloud.astype(np.uint8)
 
         rgb_norm = np.stack(
             [normalize_band(tile_rgb[j]) for j in range(3)], axis=0
@@ -64,6 +65,7 @@ def process_geotiff(geotiff_path: Path) -> list:
             rgb=rgb_norm,
             nir=tile_nir.astype(np.float32),
             ndvi=tile_ndvi.astype(np.float32),
+            cloud=tile_cloud_mask,
             bounds=(y, x, y + TILE.chip_size, x + TILE.chip_size),
             scene=geotiff_path.name,
         )

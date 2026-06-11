@@ -1,8 +1,16 @@
 earthengine-api>=1.5.0
 numpy>=1.26
 rasterio>=1.3
+scipy>=1.13
 shapely>=2.0
 geopandas>=1.0
 pyproj>=3.6
 requests>=2.31
 tqdm>=4.66
+
+# Web OAuth
+flask>=3.0
+google-auth-oauthlib>=1.2
+google-auth>=2.29
+pyjwt>=2.8
+python-dotenv>=1.0

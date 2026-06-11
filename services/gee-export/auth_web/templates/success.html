@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login Berhasil — Deforest.id</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+      padding: 48px 40px;
+      max-width: 460px;
+      width: 100%;
+      text-align: center;
+    }
+    .check {
+      width: 64px; height: 64px;
+      background: #1a5c2a;
+      color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 32px;
+    }
+    h1 { font-size: 22px; color: #1a5c2a; margin-bottom: 8px; }
+    .email { color: #555; font-size: 15px; margin-bottom: 24px; word-break: break-all; }
+    .note {
+      background: #f8fff8;
+      border: 1px solid #c8e6c9;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      color: #333;
+      text-align: left;
+      line-height: 1.6;
+    }
+    .btn-close {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 24px;
+      background: #1a5c2a;
+      color: white;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .btn-close:hover { background: #2d7a3e; }
+  </style>
+  <script>
+    setTimeout(() => window.close(), 5000);
+  </script>
+</head>
+<body>
+  <div class="card">
+    <div class="check">&#10003;</div>
+    <h1>Login Berhasil</h1>
+    <div class="email">{{ email }}</div>
+    <div class="note">
+      <strong>&#10003; Token tersimpan</strong><br>
+      Sekarang kamu bisa menjalankan export GEE.<br><br>
+      <strong>Contoh:</strong><br>
+      <code style="font-size:12px;">cd services/gee-export &amp;&amp; python -m src.run export --geojson ../../data/sample_1.geojson --prefix hl_sample_1 --wait</code><br><br>
+      Token disimpan di <code>config/gee_user_credentials.json</code>.
+    </div>
+    <a href="#" class="btn-close" onclick="window.close()">Tutup halaman</a>
+  </div>
+</body>
+</html>

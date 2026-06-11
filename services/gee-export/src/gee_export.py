@@ -8,15 +8,27 @@ from config import EXPORT
 def authenticate(project: str = None, credentials: str = None):
     project = project or EXPORT.gee_project
     credentials = credentials or EXPORT.gee_credentials
+
+    try:
+        from user_auth import init_ee, has_saved_credentials
+        if has_saved_credentials() and init_ee(project):
+            print("[AUTH] Menggunakan kredensial user OAuth")
+            return
+    except ImportError:
+        pass
+
     try:
         ee.Initialize(project=project)
     except Exception:
         cred_path = Path(credentials)
         if cred_path.exists():
-            ee.ServiceAccountCredentials(
-                email=None, key_file=str(cred_path), project=project
+            with open(cred_path) as f:
+                import json
+                key_data = json.load(f)
+            sa_credentials = ee.ServiceAccountCredentials(
+                email=key_data.get("client_email"), key_file=str(cred_path)
             )
-            ee.Initialize(project=project)
+            ee.Initialize(credentials=sa_credentials, project=project)
         else:
             ee.Authenticate()
             ee.Initialize(project=project)
@@ -64,9 +76,8 @@ def build_composite(
         return img.updateMask(clear)
 
     cleaned = collection.map(mask_clouds)
-    clear_count = cleaned.select('B2').count().rename('CLEAR_COUNT')
-    composite = cleaned.median().clip(aoi)
-    clear_count = clear_count.clip(aoi)
+    composite = cleaned.median().clip(aoi).toFloat()
+    clear_count = cleaned.select('B2').count().rename('CLEAR_COUNT').clip(aoi).toFloat()
 
     return composite.addBands(clear_count).select(list(EXPORT.band_order))
 
@@ -80,21 +91,34 @@ def export_composite(
     crs: str = None,
     max_pixels: int = None,
 ) -> ee.batch.Task:
-    folder = folder or EXPORT.export_folder
     scale = scale or EXPORT.scale
     crs = crs or EXPORT.crs
     max_pixels = max_pixels or EXPORT.max_pixels
 
-    task = ee.batch.Export.image.toDrive(
-        image=composite,
-        description=description,
-        folder=folder,
-        fileNamePrefix=description,
-        region=aoi,
-        scale=scale,
-        crs=crs,
-        maxPixels=max_pixels,
-    )
+    bucket = EXPORT.export_bucket
+    if bucket:
+        task = ee.batch.Export.image.toCloudStorage(
+            image=composite,
+            description=description,
+            bucket=bucket,
+            fileNamePrefix=description,
+            region=aoi,
+            scale=scale,
+            crs=crs,
+            maxPixels=max_pixels,
+        )
+    else:
+        folder = folder or EXPORT.export_folder
+        task = ee.batch.Export.image.toDrive(
+            image=composite,
+            description=description,
+            folder=folder,
+            fileNamePrefix=description,
+            region=aoi,
+            scale=scale,
+            crs=crs,
+            maxPixels=max_pixels,
+        )
     task.start()
     return task
 

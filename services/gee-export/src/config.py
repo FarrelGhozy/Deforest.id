@@ -17,6 +17,7 @@ class ExportConfig:
     max_pixels: int = 1_000_000_000_000
 
     export_folder: str = "deforest_training"
+    export_bucket: str = os.getenv("GEE_EXPORT_BUCKET", "")
     cloud_percent_filter: int = 80
     composite_months: int = 12
 
@@ -37,21 +38,24 @@ class LabelConfig:
         "GFC-2023-v1.11/Hansen_GFC-2023-v1.11_loss_30N_090E.tif"
     )
     output_label_dir: Path = Path("data/training/unet/labels_gfw")
-    loss_threshold_px: float = 0.1
+    loss_threshold_px: float = 0.001
+
+
+_ROOT = Path(os.getenv("DATA_ROOT", Path(__file__).parents[3]))
 
 
 @dataclass
 class PathConfig:
-    raw_dir: Path = Path("data/training/unet/raw")
-    chips_dir: Path = Path("data/training/unet/chips")
-    labels_gfw_dir: Path = Path("data/training/unet/labels_gfw")
-    labels_ndvi_dir: Path = Path("data/training/unet/labels_ndvi")
-    train_img_dir: Path = Path("data/training/unet/train/images")
-    train_mask_dir: Path = Path("data/training/unet/train/masks")
-    val_img_dir: Path = Path("data/training/unet/val/images")
-    val_mask_dir: Path = Path("data/training/unet/val/masks")
-    test_img_dir: Path = Path("data/training/unet/test/images")
-    test_mask_dir: Path = Path("data/training/unet/test/masks")
+    raw_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/raw")
+    chips_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/chips")
+    labels_gfw_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/labels_gfw")
+    labels_ndvi_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/labels_ndvi")
+    train_img_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/train/images")
+    train_mask_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/train/masks")
+    val_img_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/val/images")
+    val_mask_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/val/masks")
+    test_img_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/test/images")
+    test_mask_dir: Path = field(default_factory=lambda: _ROOT / "data/training/unet/test/masks")
 
 
 EXPORT = ExportConfig()
