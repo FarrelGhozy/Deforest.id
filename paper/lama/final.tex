@@ -1,0 +1,249 @@
+\documentclass[10pt,a4paper,onecolumn]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{indentfirst}
+\usepackage[bahasa]{babel}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=blue}
+\setlength{\parskip}{0.15ex}
+\setlength{\parindent}{1.25cm}
+
+\title{\textbf{Segmentasi Deforestasi Multi-Temporal \\
+Menggunakan Sentinel-2 Level-2A dan Label Hansen GFW} \\
+\small Pipeline Ekspor--Tile--Label--Training untuk Hutan Lindung Papua Selatan}
+
+\author{Tim Riset --- Deforest.id}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\paragraph{Abstrak.}
+Kami menyajikan pipeline otomatis untuk segmentasi deforestasi pada
+resolusi 10\,m di Hutan Lindung Boven Digoel dan Merauke, Papua Selatan.
+Pipeline mencakup: (1) ekspor komposit Sentinel-2 Level-2A tahun 2020
+dan 2023 dari Google Earth Engine, (2) pemotongan menjadi chip
+$64\times64$ piksel dengan filter tutupan awan dan NDVI, (3) pelabelan
+menggunakan Hansen Global Forest Change v1.11, dan (4) pelatihan model
+U-Net. Tiga arsitektur dievaluasi: SimpleUNet satu tanggal, ResNet34
+U-Net multi-temporal, dan FC-Siam-diff. Model Siamese mencapai IoU uji
+global 0,137 (F1 0,240), melampaui multi-temporal (0,119) dan satu
+tanggal (0,122). Ketimpangan kelas ekstrem (0,38\,\% piksel positif) dan
+ketidaksesuaian resolusi label Landsat 30\,m--Sentinel-2 10\,m membatasi
+performa absolut. Pipeline menunjukkan kelayakan ujung-ke-ujung dari
+akuisisi hingga pelatihan model segmentasi.
+
+\section{Pendahuluan}
+Indonesia memiliki sekitar 94~Mha hutan tropis dan kehilangan ratusan
+ribu hektare hutan setiap tahun \cite{hansen2013high}. Hutan lindung di
+Papua Selatan, khususnya Kabupaten Boven Digoel dan Merauke, merupakan
+kawasan yang rentan terhadap pembukaan lahan skala kecil yang sulit
+terdeteksi oleh sistem resolusi kasar. Global Forest Watch (GFW)
+menyediakan data kehilangan tutupan pohon tahunan pada resolusi 30~m,
+sementara Sentinel-2 pada resolusi 10~m memberikan dasar praktis untuk
+deteksi yang lebih rapat \cite{drusch2012sentinel2}.
+
+Studi ini membangun pipeline ujung-ke-ujung yang mencakup: (1) ekspor
+komposit Sentinel-2 Level-2A (\texttt{COPERNICUS/S2\_SR\_HARMONIZED})
+dari Google Earth Engine \cite{gorelick2017gee} untuk periode baseline
+2020 dan deforestasi 2023, (2) pemotongan menjadi chip $64\times64$ pada
+resolusi 10~m dengan filter tutupan awan dan NDVI, (3) pelabelan
+menggunakan Hansen Global Forest Change (GFC) v1.11 \cite{hansen2013high},
+dan (4) pelatihan tiga arsitektur segmentasi. Kami menguji apakah label
+loss-year Hansen GFW dapat digunakan untuk mengawasi segmentasi
+Sentinel-2 dan apakah pemodelan multi-temporal meningkatkan kinerja
+dibandingkan segmentasi satu tanggal pasca-kejadian.
+
+\section{Kajian Terkait dan Posisi Riset}
+Produk kehilangan hutan tahunan Hansen GFC \cite{hansen2013high} berbasis
+Landsat (30~m) tetap menjadi acuan global, tetapi granularitas tahunan
+dan resolusi spasialnya membatasi deteksi gangguan kecil. Sentinel-2
+menawarkan resolusi 10~m dengan revisit 5 hari, cocok untuk pemantauan
+lokal \cite{drusch2012sentinel2}. U-Net \cite{ronneberger2015unet}
+banyak digunakan untuk segmentasi penginderaan jauh, termasuk deteksi
+deforestasi \cite{wagner2019change,john2022attention}. Arsitektur
+change detection seperti FC-Siam-diff \cite{daudt2018fcsiam}
+membandingkan fitur dua tanggal secara eksplisit dan relevan untuk
+pemantauan deforestasi multi-temporal.
+
+Riset ini berfokus pada implementasi pipeline operasional yang nyata,
+bukan sekadar tolok ukur akurasi. Kontribusi utamanya adalah mengukur
+kesenjangan antara label Hansen 30~m dan citra Sentinel-2 10~m, serta
+mengidentifikasi hambatan pipeline: resolusi label, ketimpangan kelas,
+overfitting, dan artefak komposit akibat tutupan awan.
+
+\section{Metodologi}
+\subsection{Data dan Label}
+Wilayah kajian adalah Hutan Lindung di Kabupaten Boven Digoel dan
+Merauke, Provinsi Papua Selatan (longitude $\sim$138,1--139,9\,E,
+latitude $\sim$5,9--4,5\,S). Tujuh area sampel (\texttt{hl\_sample\_1}
+hingga \texttt{hl\_sample\_7}) didefinisikan dalam berkas GeoJSON
+berdasarkan data kawasan hutan lindung resmi.
+
+Kami mengekspor komposit Sentinel-2 Level-2A
+(\texttt{COPERNICUS/S2\_SR\_HARMONIZED}) dari Google Earth Engine
+\cite{gorelick2017gee} untuk dua periode: baseline 2020
+(2020-01-01--2020-12-31) dan deforestasi 2023 (2023-01-01--2023-12-31).
+Setiap komposit dibangun dengan filter \texttt{CLOUDY\_PIXEL\_PERCENTAGE}
+$<80$, masking awan dan cirrus via QA60 (bit 10 dan 11), dan median
+per-piksel. Lima kanal diekspor: B2 (Biru), B3 (Hijau), B4 (Merah), B8
+(NIR), dan \texttt{CLEAR\_COUNT} --- jumlah observasi jernih per piksel.
+Resolusi spasial 10~m, CRS EPSG:4326.
+
+Komposit GeoTIFF dipotong menjadi chip $64\times64$ piksel dengan
+stride 64, setara 0,64~ha per chip. Filter diterapkan: chip dengan
+fraksi awan $>0{,}3$ (berdasarkan \texttt{CLEAR\_COUNT} $<3$) atau
+NDVI rata-rata $<0{,}0$ dibuang. Setiap chip menyimpan larik
+\texttt{rgb} (3 kanal ternormalisasi), \texttt{nir}, \texttt{ndvi}
+(hitungan dari B4 dan B8), dan \texttt{cloud} (masker biner).
+
+Label lemah diturunkan dari Hansen Global Forest Change v1.11
+\cite{hansen2013high}. Piksel dengan \texttt{loss} $>0$ pada tahun
+2023 diberi label deforestasi (1); piksel lain diberi label latar
+belakang (0). Masker GFW diunduh dari \texttt{storage.googleapis.com}
+dan diresampel ke resolusi 10~m dengan interpolasi nearest-neighbor.
+Piksel awan pada chip diberi nilai 255 dan diabaikan saat kalkulasi
+loss (ignore index).
+
+Dataset berisi 40.484 chip dari 7 scene: 23.135 latih, 5.822 validasi,
+11.527 uji. Hanya 0,38\,\% dari seluruh piksel yang positif dan 74\,\%
+chip tidak mengandung deforestasi, mencerminkan ketimpangan kelas
+ekstrem yang khas dalam pemantauan operasional.
+
+\subsection{Model dan Pelatihan}
+Tiga arsitektur dievaluasi. Pertama, \textbf{SimpleUNet} \cite{ronneberger2015unet}
+hanya menggunakan citra pasca-kejadian 2023 dengan lima kanal input
+(rgb+nir+ndvi). Kedua, \textbf{ResNet34 U-Net} \cite{he2016deep}
+menggabungkan input pra-kejadian 2020 dan pasca-kejadian 2023 menjadi
+10 kanal, menggunakan encoder ResNet34 yang diinisialisasi dengan bobot
+ImageNet (tiga kanal pertama dari bobot RGB, tujuh kanal tambahan dari
+rata-rata bobot RGB). Ketiga, \textbf{FC-Siam-diff} \cite{daudt2018fcsiam}
+menggunakan encoder berbobot sama untuk dua tanggal dan menggabungkan
+fitur pasca-kejadian, fitur pra-kejadian, serta selisih fiturnya pada
+skip connection decoder.
+
+Semua model menggunakan Dice loss \cite{milletari2016vnet} dengan
+\texttt{ignore\_index}=255 (piksel awan), AdamW \cite{loshchilov2019decoupled}
+(laju belajar $10^{-4}$, weight decay $5\times10^{-4}$), cosine annealing
+scheduler, dan \texttt{WeightedRandomSampler} dengan faktor 3--10$\times$
+untuk chip positif guna mengatasi ketimpangan kelas. SimpleUNet dilatih
+dengan batch 32--64, sedangkan model multi-temporal menggunakan batch 64
+dengan gradient accumulation 2 langkah (batch efektif 128). Augmentasi
+terbatas pada flip horizontal/vertikal acak; augmentasi berat seperti
+rotasi dan jitter spektral justru menurunkan hasil karena model bergantung
+pada hubungan kanal yang konsisten. Mixed precision (AMP) dan pemotongan
+gradien 1,0 digunakan pada semua pelatihan.
+
+Evaluasi melaporkan IoU, precision, recall, F1, dan akurasi karena
+akurasi saja dapat menyesatkan ketika latar belakang mendominasi
+\cite{powers2011evaluation}. Pada inferensi, test-time augmentation
+horizontal dan vertikal merata-ratakan prediksi untuk mengurangi
+sensitivitas orientasi chip.
+
+\section{Hasil dan Diskusi}
+\begin{table}[ht]
+\centering
+\caption{Metrik global pada test set, dijumlahkan pada semua chip.}
+\label{tab:results}
+\small
+\begin{tabular}{lccc}
+\toprule
+Metrik & SimpleUNet & ResNet34 UNet & Siamese \\
+\midrule
+IoU       & 0,122 & 0,119 & \textbf{0,137} \\
+Precision & \textbf{0,198} & 0,154 & 0,196 \\
+Recall    & 0,239 & \textbf{0,344} & 0,311 \\
+F1        & 0,217 & 0,212 & \textbf{0,240} \\
+Accuracy  & \textbf{0,984} & 0,977 & 0,982 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Model Siamese mencapai IoU dan F1 terbaik, mengonfirmasi bahwa perbedaan
+fitur eksplisit lebih berguna daripada penumpukan kanal. ResNet34 UNet
+memiliki recall tertinggi ({0,344}) tetapi precision lebih rendah, yang
+menunjukkan kecenderungan positif palsu. SimpleUNet satu tanggal justru
+paling presisi ({0,198}) namun melewatkan lebih banyak kejadian. Rata-rata
+IoU per sampel jauh lebih rendah ({0,012--0,015}) karena mayoritas chip
+tidak mengandung piksel positif; metrik global lebih representatif untuk
+kejadian langka.
+
+Kurva validasi mencapai puncak pada epoch 4--6 lalu menurun sementara
+loss pelatihan terus turun, menandakan overfitting akibat contoh positif
+terbatas dan konteks $64\times64$ yang sempit. Analisis kesalahan
+menunjukkan empat mode kegagalan utama: positif palsu dari perubahan
+pertanian/tanah terbuka/air, batas deforestasi yang terlalu halus,
+artefak bayangan awan residual, dan noise label spasial/temporal akibat
+ketidakcocokan resolusi GFW 30~m--Sentinel-2 10~m.
+
+\section{Pipeline dan Alur Kerja}
+Pipeline diimplementasikan dalam modul \texttt{services/gee-export} dan
+\texttt{scripts/} dengan CLI terpadu:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Ekspor} --- \texttt{python -m src.run export --geojson aoi.geojson --prefix hl\_sample} \\
+    Mengekspor komposit Sentinel-2 L2A (lima kanal: B2, B3, B4, B8, CLEAR\_COUNT) dalam format GeoTIFF ke Google Drive atau Cloud Storage.
+    \item \textbf{Tiling} --- \texttt{python -m src.run tile} \\
+    Memotong GeoTIFF menjadi chip $64\times64$ dengan stride 64. Filter:
+    fraksi awan $<0{,}3$ (CLEAR\_COUNT $\geq3$) dan NDVI rata-rata $>0{,}0$.
+    Setiap chip disimpan sebagai \texttt{.npz} dengan larik rgb, nir, ndvi, dan cloud.
+    \item \textbf{Labeling} --- \texttt{python -m src.run label-gfw} \\
+    Mengunduh tile Hansen GFC-2023-v1.11 dari Google Cloud Storage dan
+    meresampel masker loss (30~m $\to$ 10~m) pada setiap chip.
+    \item \textbf{Split} --- \texttt{python -m src.run split} \\
+    Membagi dataset menjadi train/val/test (70/20/10) dan menyimpan dalam
+    format \texttt{.npy} siap pakai untuk PyTorch.
+    \item \textbf{Training} --- \texttt{python scripts/train\_unet.py} \\
+    Melatih SimpleUNet (5 kanal) atau varian multi-temporal dengan Dice
+    loss, AdamW, WeightedRandomSampler, dan cosine annealing scheduler.
+\end{enumerate}
+
+Pipeline berjalan di atas GPU dengan PyTorch AMP. Pelatihan 30 epoch
+membutuhkan kurang dari 30 menit; inferensi penuh pada 11.527 chip uji
+dengan test-time augmentation membutuhkan sekitar 12 menit. Seluruh
+alur kerja dapat direproduksi pada perangkat keras konsumen.
+
+Keterbatasan utama adalah kualitas label Hansen GFC yang berasal dari
+Landsat 30~m, sehingga setiap piksel label mencakup sembilan piksel
+Sentinel-2. Pembukaan kecil yang terlihat pada 10~m dapat hilang dari
+label. Ketimpangan kelas ekstrem (0,38\,\% positif), konteks chip
+$64\times64$ yang terbatas, artefak komposit, dan pergeseran distribusi
+antar-scene juga membatasi generalisasi. Keterbatasan ini menunjukkan
+bahwa peningkatan kualitas label lebih berdampak daripada perubahan
+arsitektur model.
+
+\section{Kesimpulan}
+Pipeline ujung-ke-ujung ini menunjukkan bahwa segmentasi deforestasi
+10~m menggunakan Sentinel-2 Level-2A dengan label lemah Hansen GFC v1.11
+layak diimplementasikan untuk hutan lindung di Papua Selatan. FC-Siam-diff
+mencapai hasil terbaik (IoU 0,137, F1 0,240), mengonfirmasi bahwa
+representasi perubahan eksplisit mengungguli stacking naif dan inferensi
+satu tanggal. Pekerjaan lanjutan perlu berfokus pada label berkualitas
+lebih tinggi (manual atau citra resolusi tinggi), chip lebih besar dengan
+mekanisme attention, dan pascapemrosesan komponen terhubung untuk
+peringatan operasional. Seluruh pipeline --- dari ekspor GEE hingga
+pelatihan model --- bersifat terbuka dan dapat direproduksi.
+
+\clearpage
+\small
+\renewcommand{\refname}{Daftar Pustaka}
+\bibliographystyle{ieeetr}
+\bibliography{icp-refs}
+
+\clearpage
+\appendix
+\section{Arsitektur SimpleUNet}
+\label{app:arch}
+Encoder--decoder dengan $5\to32\to64\to128\to256$ kanal pada encoder,
+bottleneck 512, dan skip connection. Input: 5 kanal (rgb ternormalisasi
+0--255, nir/10000, ndvi). Output: 2 kanal (background, deforestasi).
+Loss: Dice dengan ignore\_index=255.
+
+\end{document}
