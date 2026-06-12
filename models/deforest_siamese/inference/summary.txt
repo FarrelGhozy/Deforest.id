@@ -1,0 +1,18 @@
+Split: test
+Samples: 11390
+TTA: True
+Checkpoint: models/deforest_siamese/best.pth
+
+=== Per-Sample Mean Metrics ===
+  IoU: 0.014869
+  Precision: 0.020906
+  Recall: 0.041849
+  F1: 0.023102
+  Accuracy: 0.982108
+
+=== Global Metrics ===
+  IoU:       0.136591
+  Precision: 0.195724
+  Recall:    0.311341
+  F1:        0.240352
+  Accuracy:  0.982097

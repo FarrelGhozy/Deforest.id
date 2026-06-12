@@ -1,0 +1,19 @@
+Split: test
+Samples: 11527
+TTA: True
+Checkpoint: models/unet_deforest_v2/best.pth
+
+=== Per-Sample Mean Metrics ===
+  IoU: 0.012176
+  IoU_bg: 0.983381
+  Precision: 0.019830
+  Recall: 0.031950
+  F1: 0.018994
+  Accuracy: 0.983881
+
+=== Global Metrics ===
+  IoU:       0.121507
+  Precision: 0.197955
+  Recall:    0.239331
+  F1:        0.216685
+  Accuracy:  0.984352

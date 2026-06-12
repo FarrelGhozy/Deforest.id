@@ -1,11 +1,12 @@
 """
-Single-date baseline inference with TTA + visualization.
+Multi-temporal inference with TTA + visualization.
 
 Usage:
-    python scripts/infer_unet.py \
-        --checkpoint models/unet_deforest_v2/best.pth \
+    python scripts/infer_multitemporal.py \
+        --checkpoint models/deforest_multitemporal/best.pth \
         --manifest data/training/unet/manifest.json \
-        --output models/unet_deforest_v2/inference
+        --chips-dir data/training/unet/chips \
+        --output models/deforest_multitemporal/inference
 
 Options:
     --split test         (default) evaluate on test set
@@ -24,11 +25,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from train_unet import SimpleUNet, DeforestDataset
+from train_multitemporal import ResNetUNet, MultiTemporalDeforestDataset
 
 
 class InferenceDataset(Dataset):
-    """Wraps DeforestDataset but returns metadata for saving."""
+    """Wraps MultiTemporalDeforestDataset but returns metadata for saving."""
 
     def __init__(self, base_dataset, shuffle_rng=None):
         self.base = base_dataset
@@ -42,8 +43,8 @@ class InferenceDataset(Dataset):
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
         img, mask = self.base[actual_idx]
-        entry = self.base.entries[actual_idx]
-        return img, mask, actual_idx, entry.get("stem", f"idx_{actual_idx}")
+        pair = self.base.pairs[actual_idx]
+        return img, mask, actual_idx, pair["pre"], pair["mask"]
 
 
 @torch.no_grad()
@@ -82,9 +83,10 @@ def compute_metrics(pred_mask, gt_mask, ignore_val=255):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default="models/unet_deforest_v2/best.pth")
+    parser.add_argument("--checkpoint", default="models/deforest_multitemporal/best.pth")
     parser.add_argument("--manifest", default="data/training/unet/manifest.json")
-    parser.add_argument("--output", default="models/unet_deforest_v2/inference")
+    parser.add_argument("--chips-dir", default="data/training/unet/chips")
+    parser.add_argument("--output", default="models/deforest_multitemporal/inference")
     parser.add_argument("--split", choices=["train", "val", "test"], default="test")
     parser.add_argument("--no-tta", action="store_true")
     parser.add_argument("--max-samples", type=int, default=None)
@@ -98,8 +100,8 @@ def main():
     with open(args.manifest) as f:
         manifest = json.load(f)
 
-    base_ds = DeforestDataset(
-        manifest[args.split], label_key="mask", apply_cloud_mask=True, augment=False, cache_ram=False
+    base_ds = MultiTemporalDeforestDataset(
+        manifest[args.split], args.chips_dir, augment=False, cache_ram=False
     )
     ds = InferenceDataset(base_ds, shuffle_rng=np.random.RandomState(42) if args.max_samples else None)
     if args.max_samples:
@@ -107,11 +109,8 @@ def main():
 
     loader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
 
-    model = SimpleUNet(in_channels=5, out_channels=2, base_filters=64).to(device)
+    model = ResNetUNet(in_channels=10, out_channels=2).to(device)
     state = torch.load(args.checkpoint, map_location=device, weights_only=True)
-    # Strip _orig_mod. prefix from compiled model checkpoints
-    if any(k.startswith("_orig_mod.") for k in state):
-        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
     model.load_state_dict(state)
     model.eval()
     if device.type == "cuda":
@@ -124,7 +123,7 @@ def main():
     print(f"Running {args.split} inference on {len(ds)} samples")
     print(f"TTA: {use_tta}")
 
-    for batch_idx, (img, mask, actual_idx, stem) in enumerate(
+    for batch_idx, (img, mask, actual_idx, pre_path, mask_path) in enumerate(
         tqdm(loader, desc="Inference")
     ):
         probs = predict_tta(model, img[0], device, use_flip=use_tta)
@@ -135,48 +134,61 @@ def main():
         all_metrics.append(metrics)
 
         if batch_idx < n_vis:
-            fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+            fig, axes = plt.subplots(2, 4, figsize=(16, 8))
             ch = img[0].numpy()
 
-            # RGB (first 3 bands)
-            rgb = np.clip(ch[:3].transpose(1, 2, 0), 0, 1)
-            axes[0, 0].imshow(rgb)
-            axes[0, 0].set_title(f"RGB | IoU={metrics['IoU']:.3f}")
+            # Pre (first 3 bands)
+            pre_rgb = np.clip(ch[:3].transpose(1, 2, 0), 0, 1)
+            axes[0, 0].imshow(pre_rgb)
+            axes[0, 0].set_title(f"Pre (RGB) | IoU={metrics['IoU']:.3f}")
             axes[0, 0].axis("off")
 
-            # NIR
-            axes[0, 1].imshow(ch[3], cmap="gray")
-            axes[0, 1].set_title("NIR")
+            # Post (channels 5-7, i.e. pre's 3 bands shifted)
+            post_rgb = np.clip(ch[5:8].transpose(1, 2, 0), 0, 1)
+            axes[0, 1].imshow(post_rgb)
+            axes[0, 1].set_title("Post (RGB)")
             axes[0, 1].axis("off")
 
-            # NDVI
-            axes[0, 2].imshow(ch[4], cmap="RdYlGn", vmin=-1, vmax=1)
-            axes[0, 2].set_title("NDVI")
+            # NDVI pre vs post
+            ndvi_pre = ch[4]
+            ndvi_post = ch[9]
+            vmin, vmax = -1, 1
+            axes[0, 2].imshow(ndvi_pre, cmap="RdYlGn", vmin=vmin, vmax=vmax)
+            axes[0, 2].set_title("NDVI Pre")
             axes[0, 2].axis("off")
+            axes[0, 3].imshow(ndvi_post, cmap="RdYlGn", vmin=vmin, vmax=vmax)
+            axes[0, 3].set_title("NDVI Post")
+            axes[0, 3].axis("off")
 
-            # Ground truth
-            axes[1, 0].imshow(gt, cmap="gray", vmin=0, vmax=1)
-            axes[1, 0].set_title("GT Mask")
+            # NDVI difference
+            ndvi_diff = ndvi_post - ndvi_pre
+            axes[1, 0].imshow(ndvi_diff, cmap="RdBu", vmin=-1, vmax=1)
+            axes[1, 0].set_title("NDVI Post - Pre")
             axes[1, 0].axis("off")
 
-            # Prediction
-            axes[1, 1].imshow(pred, cmap="Reds", vmin=0, vmax=1)
-            axes[1, 1].set_title(f"Pred IoU={metrics['IoU']:.3f}")
+            # Ground truth
+            axes[1, 1].imshow(gt, cmap="gray", vmin=0, vmax=1)
+            axes[1, 1].set_title("GT Mask")
             axes[1, 1].axis("off")
 
-            # Overlay
-            overlay = np.clip(rgb * 0.5 + pred[:, :, None] * 0.5, 0, 1)
-            axes[1, 2].imshow(overlay)
-            axes[1, 2].set_title("Overlay")
+            # Prediction
+            axes[1, 2].imshow(pred, cmap="Reds", vmin=0, vmax=1)
+            axes[1, 2].set_title(f"Pred IoU={metrics['IoU']:.3f}")
             axes[1, 2].axis("off")
+
+            # Overlay
+            overlay = np.clip(pre_rgb * 0.5 + pred[:, :, None] * 0.5, 0, 1)
+            axes[1, 3].imshow(overlay)
+            axes[1, 3].set_title("Overlay")
+            axes[1, 3].axis("off")
 
             plt.tight_layout()
             plt.savefig(out_dir / f"sample_{batch_idx:04d}.png", dpi=150)
             plt.close(fig)
 
-    # Per-sample mean metrics
+    # Aggregate metrics (per-sample mean)
     agg = {k: np.mean([m[k] for m in all_metrics]) for k in all_metrics[0] if k not in ("TP","FP","FN","TN")}
-    # Global metrics (sum TP/FP/FN/TN)
+    # Global metrics (sum TP/FP/FN/TN across all samples — same as validation)
     global_tp = sum(m["TP"] for m in all_metrics)
     global_fp = sum(m["FP"] for m in all_metrics)
     global_fn = sum(m["FN"] for m in all_metrics)

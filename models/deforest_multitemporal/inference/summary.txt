@@ -1,0 +1,19 @@
+Split: test
+Samples: 11390
+TTA: True
+Checkpoint: models/deforest_multitemporal/best.pth
+
+=== Per-Sample Mean Metrics ===
+  IoU: 0.015449
+  IoU_bg: 0.975968
+  Precision: 0.022073
+  Recall: 0.047983
+  F1: 0.024308
+  Accuracy: 0.976837
+
+=== Global Metrics ===
+  IoU:       0.118817
+  Precision: 0.153709
+  Recall:    0.343588
+  F1:        0.212398
+  Accuracy:  0.976820

@@ -1,17 +1,4 @@
-"""
-Single-date baseline inference with TTA + visualization.
-
-Usage:
-    python scripts/infer_unet.py \
-        --checkpoint models/unet_deforest_v2/best.pth \
-        --manifest data/training/unet/manifest.json \
-        --output models/unet_deforest_v2/inference
-
-Options:
-    --split test         (default) evaluate on test set
-    --no-tta             disable test-time augmentation
-"""
-
+"""Siamese inference with TTA + visualization."""
 import argparse
 import json
 import numpy as np
@@ -24,12 +11,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from train_unet import SimpleUNet, DeforestDataset
+from train_siamese import SiameseUNet, SiameseDeforestDataset
 
 
 class InferenceDataset(Dataset):
-    """Wraps DeforestDataset but returns metadata for saving."""
-
     def __init__(self, base_dataset, shuffle_rng=None):
         self.base = base_dataset
         self.indices = list(range(len(base_dataset)))
@@ -41,22 +26,22 @@ class InferenceDataset(Dataset):
 
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
-        img, mask = self.base[actual_idx]
-        entry = self.base.entries[actual_idx]
-        return img, mask, actual_idx, entry.get("stem", f"idx_{actual_idx}")
+        pre, post, mask = self.base[actual_idx]
+        pair = self.base.pairs[actual_idx]
+        return pre, post, mask, actual_idx, pair["pre"], pair["mask"]
 
 
 @torch.no_grad()
-def predict_tta(model, image, device, use_flip=True):
-    """Predict with test-time augmentation (horizontal + vertical flip)."""
+def predict_tta(model, pre, post, device, use_flip=True):
     model.eval()
-    image = image.unsqueeze(0).to(device)
+    pre = pre.unsqueeze(0).to(device)
+    post = post.unsqueeze(0).to(device)
 
     with torch.amp.autocast("cuda", enabled=device.type == "cuda"):
-        logits = model(image)
+        logits = model(pre, post)
         if use_flip:
-            logits += model(image.flip(-1)).flip(-1)
-            logits += model(image.flip(-2)).flip(-2)
+            logits += model(pre.flip(-1), post.flip(-1)).flip(-1)
+            logits += model(pre.flip(-2), post.flip(-2)).flip(-2)
         logits /= (1 + 2 * use_flip)
 
     return logits.softmax(dim=1).squeeze(0).cpu()
@@ -68,23 +53,21 @@ def compute_metrics(pred_mask, gt_mask, ignore_val=255):
     fp = ((pred_mask == 1) & (gt_mask == 0) & valid).sum().item()
     fn = ((pred_mask == 0) & (gt_mask == 1) & valid).sum().item()
     tn = ((pred_mask == 0) & (gt_mask == 0) & valid).sum().item()
-
     iou = tp / (tp + fp + fn + 1e-8)
-    iou_bg = tn / (tn + fp + fn + 1e-8)
     precision = tp / (tp + fp + 1e-8)
     recall = tp / (tp + fn + 1e-8)
     f1 = 2 * precision * recall / (precision + recall + 1e-8)
     acc = (tp + tn) / (tp + fp + fn + tn + 1e-8)
-    return {"IoU": iou, "IoU_bg": iou_bg, "Precision": precision,
-            "Recall": recall, "F1": f1, "Accuracy": acc, "TP": tp, "FP": fp,
-            "FN": fn, "TN": tn}
+    return {"IoU": iou, "Precision": precision, "Recall": recall,
+            "F1": f1, "Accuracy": acc, "TP": tp, "FP": fp, "FN": fn, "TN": tn}
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default="models/unet_deforest_v2/best.pth")
+    parser.add_argument("--checkpoint", default="models/deforest_siamese/best.pth")
     parser.add_argument("--manifest", default="data/training/unet/manifest.json")
-    parser.add_argument("--output", default="models/unet_deforest_v2/inference")
+    parser.add_argument("--chips-dir", default="data/training/unet/chips")
+    parser.add_argument("--output", default="models/deforest_siamese/inference")
     parser.add_argument("--split", choices=["train", "val", "test"], default="test")
     parser.add_argument("--no-tta", action="store_true")
     parser.add_argument("--max-samples", type=int, default=None)
@@ -98,8 +81,8 @@ def main():
     with open(args.manifest) as f:
         manifest = json.load(f)
 
-    base_ds = DeforestDataset(
-        manifest[args.split], label_key="mask", apply_cloud_mask=True, augment=False, cache_ram=False
+    base_ds = SiameseDeforestDataset(
+        manifest[args.split], args.chips_dir, augment=False, cache_ram=False
     )
     ds = InferenceDataset(base_ds, shuffle_rng=np.random.RandomState(42) if args.max_samples else None)
     if args.max_samples:
@@ -107,11 +90,8 @@ def main():
 
     loader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
 
-    model = SimpleUNet(in_channels=5, out_channels=2, base_filters=64).to(device)
+    model = SiameseUNet(in_channels=5, out_channels=2).to(device)
     state = torch.load(args.checkpoint, map_location=device, weights_only=True)
-    # Strip _orig_mod. prefix from compiled model checkpoints
-    if any(k.startswith("_orig_mod.") for k in state):
-        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
     model.load_state_dict(state)
     model.eval()
     if device.type == "cuda":
@@ -124,10 +104,10 @@ def main():
     print(f"Running {args.split} inference on {len(ds)} samples")
     print(f"TTA: {use_tta}")
 
-    for batch_idx, (img, mask, actual_idx, stem) in enumerate(
+    for batch_idx, (pre, post, mask, actual_idx, pre_path, mask_path) in enumerate(
         tqdm(loader, desc="Inference")
     ):
-        probs = predict_tta(model, img[0], device, use_flip=use_tta)
+        probs = predict_tta(model, pre[0], post[0], device, use_flip=use_tta)
         pred = probs.argmax(dim=0).numpy().astype(np.int64)
         gt = mask[0].numpy().astype(np.int64)
 
@@ -135,48 +115,53 @@ def main():
         all_metrics.append(metrics)
 
         if batch_idx < n_vis:
-            fig, axes = plt.subplots(2, 3, figsize=(12, 8))
-            ch = img[0].numpy()
+            fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+            ch_pre = pre[0].numpy()
+            ch_post = post[0].numpy()
 
-            # RGB (first 3 bands)
-            rgb = np.clip(ch[:3].transpose(1, 2, 0), 0, 1)
-            axes[0, 0].imshow(rgb)
-            axes[0, 0].set_title(f"RGB | IoU={metrics['IoU']:.3f}")
+            pre_rgb = np.clip(ch_pre[:3].transpose(1, 2, 0), 0, 1)
+            axes[0, 0].imshow(pre_rgb)
+            axes[0, 0].set_title(f"Pre (RGB) | IoU={metrics['IoU']:.3f}")
             axes[0, 0].axis("off")
 
-            # NIR
-            axes[0, 1].imshow(ch[3], cmap="gray")
-            axes[0, 1].set_title("NIR")
+            post_rgb = np.clip(ch_post[:3].transpose(1, 2, 0), 0, 1)
+            axes[0, 1].imshow(post_rgb)
+            axes[0, 1].set_title("Post (RGB)")
             axes[0, 1].axis("off")
 
-            # NDVI
-            axes[0, 2].imshow(ch[4], cmap="RdYlGn", vmin=-1, vmax=1)
-            axes[0, 2].set_title("NDVI")
+            ndvi_pre = ch_pre[4]
+            ndvi_post = ch_post[4]
+            axes[0, 2].imshow(ndvi_pre, cmap="RdYlGn", vmin=-1, vmax=1)
+            axes[0, 2].set_title("NDVI Pre")
             axes[0, 2].axis("off")
+            axes[0, 3].imshow(ndvi_post, cmap="RdYlGn", vmin=-1, vmax=1)
+            axes[0, 3].set_title("NDVI Post")
+            axes[0, 3].axis("off")
 
-            # Ground truth
-            axes[1, 0].imshow(gt, cmap="gray", vmin=0, vmax=1)
-            axes[1, 0].set_title("GT Mask")
+            ndvi_diff = ndvi_post - ndvi_pre
+            axes[1, 0].imshow(ndvi_diff, cmap="RdBu", vmin=-1, vmax=1)
+            axes[1, 0].set_title("NDVI Diff")
             axes[1, 0].axis("off")
 
-            # Prediction
-            axes[1, 1].imshow(pred, cmap="Reds", vmin=0, vmax=1)
-            axes[1, 1].set_title(f"Pred IoU={metrics['IoU']:.3f}")
+            axes[1, 1].imshow(gt, cmap="gray", vmin=0, vmax=1)
+            axes[1, 1].set_title("GT Mask")
             axes[1, 1].axis("off")
 
-            # Overlay
-            overlay = np.clip(rgb * 0.5 + pred[:, :, None] * 0.5, 0, 1)
-            axes[1, 2].imshow(overlay)
-            axes[1, 2].set_title("Overlay")
+            axes[1, 2].imshow(pred, cmap="Reds", vmin=0, vmax=1)
+            axes[1, 2].set_title(f"Pred IoU={metrics['IoU']:.3f}")
             axes[1, 2].axis("off")
+
+            overlay = np.clip(post_rgb * 0.5 + pred[:, :, None] * 0.5, 0, 1)
+            axes[1, 3].imshow(overlay)
+            axes[1, 3].set_title("Overlay")
+            axes[1, 3].axis("off")
 
             plt.tight_layout()
             plt.savefig(out_dir / f"sample_{batch_idx:04d}.png", dpi=150)
             plt.close(fig)
 
-    # Per-sample mean metrics
-    agg = {k: np.mean([m[k] for m in all_metrics]) for k in all_metrics[0] if k not in ("TP","FP","FN","TN")}
-    # Global metrics (sum TP/FP/FN/TN)
+    agg = {k: np.mean([m[k] for m in all_metrics])
+           for k in all_metrics[0] if k not in ("TP","FP","FN","TN")}
     global_tp = sum(m["TP"] for m in all_metrics)
     global_fp = sum(m["FP"] for m in all_metrics)
     global_fn = sum(m["FN"] for m in all_metrics)
@@ -190,7 +175,7 @@ def main():
     print("\n=== Per-Sample Mean Metrics ===")
     for k, v in agg.items():
         print(f"  {k}: {v:.6f}")
-    print("\n=== Global Metrics (sum TP/FP/FN — matches val) ===")
+    print("\n=== Global Metrics ===")
     print(f"  IoU:       {global_iou:.6f}")
     print(f"  Precision: {global_precision:.6f}")
     print(f"  Recall:    {global_recall:.6f}")
@@ -198,7 +183,6 @@ def main():
     print(f"  Accuracy:  {global_acc:.6f}")
     print(f"  TP={global_tp:.0f}  FP={global_fp:.0f}  FN={global_fn:.0f}  TN={global_tn:.0f}")
 
-    # Save CSV
     csv_path = out_dir / "metrics.csv"
     with open(csv_path, "w") as f:
         keys = list(all_metrics[0].keys())
@@ -207,7 +191,6 @@ def main():
             f.write(",".join(str(m[k]) for k in keys) + "\n")
     print(f"Saved per-sample metrics to {csv_path}")
 
-    # Summary text
     summary_path = out_dir / "summary.txt"
     with open(summary_path, "w") as f:
         f.write(f"Split: {args.split}\n")
@@ -224,6 +207,10 @@ def main():
         f.write(f"  F1:        {global_f1:.6f}\n")
         f.write(f"  Accuracy:  {global_acc:.6f}\n")
     print(f"Saved summary to {summary_path}")
+
+    # Clean up cache to free memory
+    if base_ds._cache is not None:
+        base_ds._cache = None
     print("\nDone!")
 
 

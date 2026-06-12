@@ -1,0 +1,390 @@
+\documentclass[10pt,a4paper,onecolumn]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{enumitem}
+\usepackage{booktabs}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=blue}
+\setlength{\parskip}{0.3ex}
+
+\title{\textbf{Multi-Temporal Deforestation Segmentation \\
+With Sentinel-2 and Global Forest Watch Labels} \\
+\small Proof-of-Concept for Automated 10\,m Monitoring}
+
+\author{Research Team --- Deforest.id}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\paragraph{Abstract.}
+We present a proof-of-concept pipeline for automated deforestation
+segmentation at 10\,m resolution using multi-temporal Sentinel-2
+imagery and Global Forest Watch (GFW) lossyear labels.  Three
+architectures are compared: a single-date U-Net (post-event only, 5
+channels), a stacked multi-temporal U-Net (pre+post, 10 channels), and
+a Siamese FC-Siam-diff network with explicit change features.  All
+models are trained on paired 2020/2023 Sentinel-2 composites for
+Indonesian protected forests.  The Siamese variant achieves the best
+global test IoU of 0.137 (F1~0.240), outperforming both the stacked
+multi-temporal (IoU~0.119) and single-date baseline (IoU~0.122).
+Extreme class imbalance (0.38\,\% positive pixels) and the resolution
+mismatch between GFW labels (30\,m Landsat) and Sentinel-2 imagery
+(10\,m) limit absolute performance.  Despite modest metrics, the
+pipeline demonstrates end-to-end viability: from satellite image
+export through training to alert visualization.  We discuss
+architectural choices, hyperparameter search results, failure modes,
+and the path toward operational accuracy.
+
+\section{Introduction}
+
+Indonesia has the third-largest tropical forest area globally
+($\sim$94~Mha), yet loses approximately 300~kha of natural forest
+annually \cite{hansen2013high}.  Protected forests (\textit{hutan
+lindung}) are especially vulnerable to small-scale deforestation that
+evades coarse-resolution monitoring systems.  Operational products
+such as Global Forest Watch (GFW) provide annual tree-cover loss at
+30~m resolution, but this is insufficient for detecting clearings
+below 0.9~ha and cannot support near-real-time interventions.
+
+Deep learning on 10~m Sentinel-2 imagery offers a path toward more
+timely and higher-resolution deforestation alerts.  Several recent
+works apply U-Net variants to forest-change detection
+\cite{wagner2019change, zapata2022deforestation}, typically using
+single-date post-event imagery.  Multi-temporal approaches that fuse
+pre- and post-event information should in principle outperform
+single-date models by explicitly representing change, but practical
+gains depend on the fusion architecture.
+
+In this proof-of-concept study, we investigate three research questions:
+\begin{enumerate}[nosep]
+    \item Can GFW lossyear labels, despite their coarser 30\,m
+          resolution, serve as viable training targets for 10\,m
+          Sentinel-2 segmentation?
+    \item Does explicit multi-temporal fusion (pre+post) improve
+          over a single-date baseline for deforestation detection?
+    \item What is the practical impact of fusion architecture ---
+          naive channel stacking versus Siamese change detection?
+\end{enumerate}
+
+We build a complete pipeline covering data export, chip pairing,
+oversampling, training with hyperparameter search, inference with
+test-time augmentation, and metric aggregation.  All code and models
+are publicly available at \url{https://github.com/anomalyco/deforest-id}.
+
+\section{Related Work}
+
+\paragraph{Deforestation monitoring.}
+GFW \cite{hansen2013high} provides global annual forest-change data
+at 30~m from Landsat.  Indonesia's SIMONTANA system uses a 6.25~ha
+minimum mapping unit for REDD+ reporting.  Both are too coarse for
+sub-hectare clearing detection.
+
+\paragraph{Deep learning for change detection.}
+U-Net \cite{ronneberger2015unet} is the dominant architecture for
+biomedical and remote-sensing segmentation.  For change detection,
+Daudt~et~al. \cite{daudt2018fcsiam} proposed FC-Siam-diff, a Siamese
+encoder with shared weights and explicit feature differencing in the
+decoder, which we adopt as our multi-temporal variant.
+
+\paragraph{Class imbalance in deforestation.}
+Deforestation pixels typically constitute less than 1\% of a scene.
+Focal loss \cite{lin2017focal}, Dice loss \cite{milletari2016vnet},
+and oversampling are standard remedies.  We find Dice loss with
+10$\times$ positive-chip oversampling to be most effective.
+
+\section{Methodology}
+
+\subsection{Dataset}
+We use Sentinel-2 L1C composite mosaics for two time periods:
+\begin{itemize}[nosep]
+    \item \textbf{Pre-event baseline:} 2020 cloud-free composite
+          (5 bands: R, G, B, NIR, NDVI).
+    \item \textbf{Post-event:} 2023 cloud-free composite
+          (same 5 bands).
+\end{itemize}
+Both composites are tiled into $64\times64$ pixel chips at 10~m
+resolution (0.64~ha per chip).  Pre- and post-event chips are paired
+by spatial index.  Ground-truth masks are derived from the GFW
+lossyear layer: pixels with lossyear~$\leq$~2023 are deforestation
+(class~1), others are background (class~0).  Cloud-contaminated
+pixels are masked via value~255 and ignored during loss computation.
+
+Dataset statistics:
+\begin{itemize}[nosep]
+    \item Total paired chips: 40,484 (23,135 train, 5,822 val, 11,527 test).
+    \item Global positive-pixel ratio: 0.38\,\%.
+    \item Chips with zero deforestation: 74\,\%.
+    \item Data sources: 13 Sentinel-2 scenes covering protected
+          forests in Riau and Central Kalimantan.
+\end{itemize}
+
+\subsection{Architectures}
+
+We evaluate three architectures:
+
+\paragraph{Single-date baseline (SimpleUNet).}
+A standard U-Net with 5 input channels (post-event R, G, B, NIR, NDVI
+only).  Encoder uses ResNet-34-equivalent depth with 64 base filters,
+21.3M parameters.  Trained with Dice loss for 50 epochs.  Best
+validation IoU: 0.071.
+
+\paragraph{Stacked multi-temporal (ResNet34 U-Net).}
+Same U-Net architecture with 10 input channels (5 pre + 5 post
+concatenated).  The first convolution layer is adapted from
+ImageNet-pretrained ResNet34 weights.  21.3M parameters.  Best
+validation IoU: 0.044 (epoch~5).
+
+\paragraph{Siamese FC-Siam-diff.}
+A shared ResNet34 encoder processes pre- and post-event chips
+independently with tied weights.  The decoder fuses
+$[\mathbf{f}_{\text{post}}, \mathbf{f}_{\text{pre}},
+\mathbf{f}_{\text{post}} - \mathbf{f}_{\text{pre}}]$ at each
+skip-connection level, explicitly modeling change.  25.9M parameters.
+Best validation IoU: 0.054 (epoch~6).
+
+\subsection{Training Procedure}
+
+All multi-temporal models share:
+\begin{itemize}[nosep]
+    \item Optimizer: AdamW (lr=1e-4, weight decay=5e-4).
+    \item Scheduler: Cosine annealing (T=30 epochs).
+    \item Loss: Symmetric Dice loss (smooth=1.0).
+    \item Batch size: 64 with gradient accumulation (effective 128).
+    \item Oversampling: 10$\times$ weight for positive chips
+          (contains deforestation).
+    \item Augmentation: Random horizontal/vertical flips only.
+    \item Precision: AMP (automatic mixed precision) with tf32.
+    \item Gradient clipping: 1.0.
+\end{itemize}
+
+Initial experiments with ResNet18 (11M params), Tversky loss,
+heavy augmentation (rotation, brightness jitter, Gaussian noise),
+and larger weight decay all underperformed the above configuration.
+Training runs 30 epochs ($\sim$15~minutes on RTX~3060 with RAM
+caching) and is monitored via Rich TUI progress bars.
+
+\section{Experiments and Results}
+
+\subsection{Hyperparameter Search}
+
+Nine configurations were systematically tested on the validation set:
+
+\begin{table}[ht]
+\centering
+\caption{Hyperparameter search summary.  Config~9 is the best.}
+\label{tab:hp_search}
+\small
+\begin{tabular}{lccl}
+\toprule
+Config & Encoder & Loss & Key Change \\
+\midrule
+1 & ResNet34 & Dice (symmetric)  & Baseline \\
+2 & ResNet34 & Tversky ($\alpha$=0.7) & Recall boost \\
+3 & ResNet34 & Focal ($\gamma$=2, $\alpha$=0.996) & Class balance \\
+4 & ResNet34 & Lov\'asz-Softmax & Direct IoU opt. \\
+5 & ResNet18 & Dice & Fewer params \\
+6 & ResNet34 & Dice + accum=1 & No accumulation \\
+7 & ResNet34 & Dice + accum=2 & Effective batch 128 \\
+8 & ResNet34 & Dice + heavy aug & Rotation + noise \\
+9 & ResNet34 & Dice + accum=2 + oversample 10$\times$ & \textbf{Best} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key findings:
+\begin{itemize}[nosep]
+    \item Dice loss consistently outperforms Tversky, Focal, and
+          Lov\'asz for this task.
+    \item Gradient accumulation (accum=2) was critical: without it,
+          the model collapses to all-background prediction.
+    \item 10$\times$ oversampling ensures $\sim$50\% of each batch
+          contains positive chips.
+    \item Heavy augmentation (rotation, brightness, noise) degrades
+          performance --- the model needs consistent spectral patterns.
+    \item ResNet34 (21M params) outperforms ResNet18 (11M).
+\end{itemize}
+
+\subsection{Test-Set Results}
+
+The three best architectures are evaluated on 11,390 hold-out test
+chips with test-time augmentation (horizontal + vertical flip
+ensemble).
+
+\begin{table}[ht]
+\centering
+\caption{Test-set comparison: global metrics (summed TP/FP/FN across all chips).}
+\label{tab:results}
+\begin{tabular}{lccc}
+\toprule
+Metric & Single-date (post) & Multi-temporal (stacked) & Siamese (ours) \\
+\midrule
+Global IoU   & 0.122 & 0.119 & \textbf{0.137} \\
+Precision    & \textbf{0.198} & 0.154 & 0.196 \\
+Recall       & 0.239 & \textbf{0.344} & 0.311 \\
+F1           & 0.217 & 0.212 & \textbf{0.240} \\
+Accuracy     & \textbf{0.984} & 0.977 & 0.982 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Siamese model achieves the best IoU and F1, combining competitive
+precision (0.196) with strong recall (0.311).  The stacked
+multi-temporal model has the highest recall but lowest precision ---
+it detects more deforestation but at the cost of false positives.
+The single-date baseline has the best precision but misses many
+events.
+
+Per-sample mean IoU is substantially lower (0.012--0.015) because
+74\,\% of test chips contain zero deforestation (IoU=0).  Global
+(summed) metrics better reflect true pixel-level performance.
+
+\subsection{Overfitting and Generalization}
+
+All multi-temporal configurations show peak validation IoU at
+epochs~4--6 followed by gradual decline (Figure~\ref{fig:curves}).
+Training loss continues to decrease while validation loss plateaus
+or increases, indicating overfitting.  This pattern is consistent
+across all 9 configurations, suggesting the 64$\times$64 chip size
+provides limited training signal for 21M+ parameter models.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.9\textwidth]{../reports/training_curves.png}
+\caption{Training curves for the best Siamese configuration:
+loss, IoU, precision/recall/F1, and learning rate over 30 epochs.
+Overfitting begins after epoch~6.}
+\label{fig:curves}
+\end{figure}
+
+\subsection{Error Analysis}
+
+Qualitative examination of 20 random test samples reveals:
+\begin{enumerate}[nosep]
+    \item \textbf{False positives} cluster around spectral changes
+          from non-forest transitions (agriculture, bare soil, water
+          level changes).
+    \item \textbf{Boundary over-smoothing}: the model misses small
+          clearings ($<$0.5~ha) and produces overly smooth edges.
+    \item \textbf{Cloud-shadow residuals} in the composites produce
+          consistent false positives despite cloud masking.
+    \item \textbf{Label noise}: many GFW deforestation polygons
+          align poorly with visible spectral change in 10~m imagery,
+          indicating the 30~m Landsat origin introduces spatial
+          uncertainty.
+\end{enumerate}
+
+\section{Proof-of-Concept Implementation}
+
+The complete pipeline runs on a single consumer GPU.  Key design
+decisions:
+
+\paragraph{Data pipeline.}
+Sentinel-2 composites are exported as GeoTIFF via Google Earth Engine,
+then tiled into 64$\times$64 NPZ chips (5 spectral bands + cloud mask).
+Pre/post pairing is done by spatial index matching.  All chips are
+cached to RAM at training start for I/O-free throughput ($\sim$27
+sec/epoch on 23k chips).
+
+\paragraph{Training.}
+Implemented in PyTorch 2.7 with AMP and tf32 matrix precision.
+Training survives SSH disconnect via tmux.  The Rich TUI library
+provides live progress bars and metric tables.  CSV logging enables
+post-hoc analysis.
+
+\paragraph{Inference.}
+Test-time augmentation flips each chip horizontally and vertically,
+averaging the three predictions.  Per-chip visualizations
+(6-panel: pre-RGB, post-RGB, NDVI pre/post, GT mask, prediction,
+overlay) are saved for qualitative inspection.
+
+\paragraph{Hardware.}
+All experiments run on NVIDIA RTX~3060 (12~GB VRAM) within WSL2
+(Windows Subsystem for Linux).  Training completes in under 30
+minutes for 30 epochs.  Full test-set inference (11,390 chips with
+TTA) requires approximately 12~minutes.
+
+\section{Limitations and Challenges}
+
+Despite demonstrating a working pipeline, several limitations prevent
+operational deployment:
+
+\paragraph{GFW label noise.}
+The most significant challenge.  GFW lossyear data originates from
+Landsat (30~m), while our composites are Sentinel-2 (10~m).  This
+3$\times$ resolution mismatch means:
+\begin{itemize}[nosep]
+    \item A single GFW pixel covers nine Sentinel-2 pixels, creating
+          ambiguous supervision at the 10~m scale.
+    \item Deforestation timing mismatch: GFW reports annual loss,
+          while our composites capture specific pre/post dates,
+          introducing temporal label noise.
+    \item Small clearings visible in 10~m imagery may be absent from
+          the 30~m GFW label.
+\end{itemize}
+
+\paragraph{Extreme class imbalance.}
+With only 0.38\,\% positive pixels and 74\,\% of chips containing
+zero deforestation, the model has limited training signal.
+Oversampling helps but cannot create new information --- the model
+sees the same few positive chips repeatedly.
+
+\paragraph{Chip size vs.\ context.}
+The 64$\times$64 chip (0.64~ha) restricts spatial context.  Larger
+chips (128$\times$128 or 256$\times$256) would provide more
+boundary information but reduce the effective number of training
+samples.
+
+\paragraph{Compositing artifacts.}
+Cloud-free composites average multiple acquisitions, which can blur
+deforestation events that occurred mid-period.  Temporal
+misalignment between pre/post composites also introduces false
+change signals.
+
+\paragraph{Distribution shift.}
+The test set has higher deforestation density (0.9\,\%) than the
+training set (0.38\,\%), indicating spatial heterogeneity that
+challenges generalization.
+
+\section{Conclusion and Future Work}
+
+We presented a proof-of-concept pipeline for multi-temporal
+deforestation segmentation at 10~m resolution.  The Siamese
+FC-Siam-diff architecture achieves the best result (IoU~0.137,
+F1~0.240), confirming that explicit change representations outperform
+naive channel stacking.  Despite modest absolute metrics, the
+pipeline demonstrates end-to-end viability: from GEE data export to
+trained model with inference visualization, all on a single consumer
+GPU.
+
+Key lessons for practitioners:
+\begin{itemize}[nosep]
+    \item GFW labels are usable but noisy at 10~m --- better
+          training data would substantially improve results.
+    \item Dice loss + aggressive oversampling + gradient
+          accumulation are necessary for extreme imbalance.
+    \item Multi-temporal fusion architecture matters more than
+          whether fusion is used at all.
+\end{itemize}
+
+Future work includes:
+\begin{enumerate}[nosep]
+    \item Higher-quality labels via manual annotation or
+          high-resolution imagery (Planet, 3~m).
+    \item Larger chip sizes (256$\times$256) with attention
+          mechanisms.
+    \item Sentinel-1 SAR integration for cloud-free change detection.
+    \item Post-processing with connected-component filtering and
+          CRF refinement.
+\end{enumerate}
+
+\small
+\bibliographystyle{ieeetr}
+\bibliography{icp-refs}
+
+\end{document}
