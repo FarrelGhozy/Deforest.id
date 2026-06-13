@@ -1,0 +1,1216 @@
+\documentclass[10pt,a4paper,onecolumn]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{array}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=blue}
+\setlength{\parskip}{0.3ex}
+
+\title{\textbf{Defense Document: Multi-Temporal Deforestation Segmentation \\
+With Sentinel-2 and Global Forest Watch Labels} \\
+\small Persiapan Sidang / Presentasi Lomba}
+
+\author{Deforest.id Research Team}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\tableofcontents
+\newpage
+
+% ======================================================================
+\section{Executive Summary (Apa yang Kita Buat?)}
+% ======================================================================
+
+Kami membangun \textbf{sistem deteksi deforestasi otomatis} menggunakan
+deep learning pada citra satelit Sentinel-2 (resolusi 10~m). Sistem ini
+menggunakan \textbf{label dari Global Forest Watch} (GFW, resolusi
+30~m) sebagai target training — tanpa label manual.
+
+Kami membandingkan \textbf{tiga arsitektur}:
+\begin{enumerate}[nosep]
+    \item \textbf{Single-date baseline:} U-Net sederhana, hanya melihat
+          citra setelah deforestasi (5 channel). Skor: test IoU 0.122.
+    \item \textbf{Stacked multi-temporal:} Pre-event + post-event
+          digabung jadi 10 channel input. Skor: test IoU 0.119.
+    \item \textbf{Siamese FC-Siam-diff:} Dua encoder identik (weight
+          sharing) untuk pre dan post, decoder menghitung perbedaan
+          fitur secara eksplisit. Skor: \textbf{test IoU 0.137}.
+\end{enumerate}
+
+\textbf{Kesimpulan utama:} Cara kita menggabungkan informasi temporal
+\textbf{lebih penting} daripada apakah kita menggunakan informasi
+temporal atau tidak. Siamese architecture menang karena explicit change
+features.
+
+% ======================================================================
+\section{Problem Statement: Kenapa Ini Perlu Dibuat?}
+% ======================================================================
+
+\subsection{Masalah Deforestasi di Indonesia}
+Indonesia adalah negara dengan \textbf{hutan tropis terluas ketiga}
+di dunia ($\sim$94 juta hektar). Setiap tahun, sekitar 300.000 hektar
+hutan alam hilang. Dari jumlah ini, sebagian besar adalah
+\textbf{small-holder clearing} — pembukaan lahan skala kecil oleh
+individu atau komunitas lokal.
+
+\textbf{Mengapa small-holder clearing sulit dideteksi?}
+\begin{itemize}[nosep]
+    \item Luas lahan yang dibuka: 0.1 -- 0.5 hektar (seukuran
+          lapangan basket sampai lapangan sepak bola mini).
+    \item Sistem monitoring eksisting (GFW, SIMONTANA) menggunakan
+          citra Landsat 30~m. Satu pixel Landsat = 0.09 ha. Jadi
+          clearing 0.1 ha hanya muat 1--2 pixel — tidak cukup untuk
+          analisis shape atau konfirmasi.
+    \item Dilakukan secara tersebar, bukan dalam blok besar.
+\end{itemize}
+
+\subsection{Kesenjangan (Research Gap)}
+\textbf{Sistem yang ada sekarang:}
+\begin{itemize}[nosep]
+    \item \textbf{GFW}: 30~m, tahunan. Bagus untuk skala global, tapi
+          tidak bisa deteksi sub-hektar.
+    \item \textbf{SIMONTANA} (Indonesia): Minimum Mapping Unit 6.25~ha.
+          Jelas terlalu besar.
+    \item \textbf{Planet Labs} (3~m): Berbayar. Tidak feasible untuk
+          monitoring kontinu di Indonesia.
+\end{itemize}
+
+\textbf{Solusi yang kami usulkan:}
+Gunakan \textbf{Sentinel-2} (10~m, gratis) + \textbf{deep learning}
+untuk mendeteksi deforestasi pada skala yang sebelumnya tidak
+terjangkau.
+
+\subsection{Pertanyaan Riset}
+\begin{enumerate}[nosep]
+    \item Bisakah label GFW (30~m) digunakan untuk melatih model
+          segmentasi pada Sentinel-2 (10~m)?
+    \item Apakah multi-temporal fusion lebih baik daripada
+          single-date? Kalau iya, arsitektur fusion mana yang terbaik?
+    \item Seberapa besar dampak label noise terhadap performa?
+\end{enumerate}
+
+% ======================================================================
+\section{Dataset: Dari Mana Datanya, Kenapa?}
+% ======================================================================
+
+\subsection{Mengapa Sentinel-2, Bukan Landsat?}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Parameter} & \textbf{Sentinel-2} & \textbf{Landsat 8-9} \\
+\midrule
+Resolusi spasial (RGB, NIR) & 10~m & 30~m \\
+Resolusi temporal & 5 hari & 16 hari \\
+Luas minimum detectable & 0.01 ha & 0.09 ha \\
+Biaya & Gratis & Gratis \\
+Cakupan & Global & Global \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Resolusi 10~m itu penting kenapa?} Deforestasi skala kecil
+(0.1 ha) terdiri dari sekitar 100 pixel di Sentinel-2, tapi cuma
+$\sim$11 pixel di Landsat. Dengan 100 pixel, model bisa belajar
+\textit{tekstur} dan \textit{bentuk} — bukan cuma ada/tidak ada
+perubahan.
+
+\textbf{Temporal resolution 5 hari itu penting kenapa?} Indonesia
+sering berawan. Dengan revisit 5 hari, kita punya banyak kesempatan
+mendapatkan scene bebas awan dalam satu tahun. Landsat 16 hari:
+kadang cuma 1--2 scene bersih per tahun.
+
+\subsection{Mengapa 5 Band Input (R, G, B, NIR, NDVI)?}
+
+\textbf{Citra satelit itu bukan foto biasa.} Setiap "band" adalah
+lapisan informasi spektral yang berbeda:
+\begin{itemize}[nosep]
+    \item \textbf{RGB (Blue 490nm, Green 560nm, Red 665nm):} Sama
+          seperti mata manusia. Untuk visualisasi dan interpretasi
+          visual. Juga menangkap informasi tanah terbuka (soil
+          exposure setelah deforestasi).
+    \item \textbf{NIR (Near-Infrared, 842nm):} Tidak terlihat oleh
+          manusia. Vegetasi sehat memantulkan NIR sangat kuat
+          ($\sim$40--50\%). Tanah dan air memantulkan NIR rendah
+          ($\sim$10--20\%). Inilah band paling penting: deforestasi
+          menyebabkan penurunan NIR yang sangat mencolok.
+    \item \textbf{NDVI (Normalized Difference Vegetation Index):}
+          Rumusnya $(NIR - Red) / (NIR + Red)$. Hasilnya angka antara
+          -1 sampai 1. Hutan lebat: 0.7--0.9. Tanah terbuka: 0.1--0.2.
+          Air: negatif. NDVI memberikan informasi vegetasi yang
+          \textbf{dinormalisasi} — tidak terpengaruh oleh kecerahan
+          absolut citra (bayangan, sudut matahari, dll).
+\end{itemize}
+
+\textbf{Mengapa tidak 10 band (semua band Sentinel-2)?}
+Sentinel-2 punya 13 band. Band 1 (60m), 2-4 (10m), 5-7 (20m),
+8 (10m), 8a (20m), 9-10 (60m), 11-12 (20m). Band 20~m perlu
+upsampling ke 10~m. Ini:
+\begin{itemize}[nosep]
+    \item Menambah ukuran data 2$\times$ tanpa informasi baru (resolusi
+          asli sudah 20m).
+    \item Menambah noise dari interpolasi.
+    \item Uji coba awal dengan 10 band menunjukkan performa setara
+          dengan 5 band — jadi tidak ada gunanya.
+\end{itemize}
+
+\subsection{Mengapa Cloud-Free Composite, Bukan Single Scene?}
+
+\textbf{Single scene:} Satu gambar pada satu tanggal. Masalah:
+\begin{itemize}[nosep]
+    \item Awan. Indonesia tropis, awan hampir selalu ada.
+    \item Bayangan awan. Bisa mirip deforestasi secara spektral.
+    \item Haze (kabut asap). Sering terjadi akibat kebakaran hutan.
+\end{itemize}
+
+\textbf{Cloud-free composite:} Ambil semua scene dalam 1 tahun,
+masking awan, lalu rata-ratakan median/sentinel yang bersih.
+Hasilnya: permukaan bumi yang bersih tanpa awan.
+\textbf{Trade-off:} Deforestasi yang terjadi di pertengahan tahun
+bisa ter-blur karena tercampur dengan citra sebelum dan sesudah
+deforestasi. \textbf{Kami menerima trade-off ini} karena model yang
+dilatih dengan data berawan akan belajar mendeteksi awan, bukan
+deforestasi.
+
+\subsection{Mengapa 64$\times$64 Pixel (0.64 ha)?}
+
+Ini adalah keputusan yang sangat penting. Mari kita analisis:
+
+\begin{itemize}[nosep]
+    \item \textbf{GPU Memory:} RTX 3060 punya 12GB VRAM. Dengan
+          64$\times$64, batch size 64 muat. Kalau 128$\times$128,
+          batch size maksimal cuma 16 — terlalu kecil untuk training
+          stabil.
+    \item \textbf{Receptive Field:} U-Net dengan 4 encoder block
+          (masing-masing stride 2) punya teoritical receptive field
+          140$\times$140. Artinya, output di satu pixel sebenarnya
+          "melihat" area 140$\times$140 di input. Ini lebih besar
+          dari chip 64$\times$64, jadi konteksnya cukup.
+    \item \textbf{Small Clearing:} Deforestasi 0.1 ha = 10$\times$10
+          pixel di Sentinel-2. Chip 64$\times$64 muat untuk
+          mendeteksi ini dengan konteks sekelilingnya.
+    \item \textbf{Jumlah Sampel:} 64$\times$64 menghasilkan lebih
+          banyak chip per scene daripada 128$\times$128. Kita
+          dapatkan 23,135 training chips.
+\end{itemize}
+
+\textbf{Mengapa tidak lebih kecil (32$\times$32)?} Terlalu kecil:
+tidak cukup konteks untuk membedakan deforestasi dari non-forest.
+Boundary informasi hilang.
+
+\subsection{Mengapa GFW Label?}
+
+Ini adalah \textbf{pertanyaan paling kritis}. Kenapa kita tidak pakai
+label yang bagus?
+
+\textbf{Realitas:} Membuat label deforestasi manual untuk ribuan
+hektar hutan Indonesia membutuhkan:
+\begin{itemize}[nosep]
+    \item Tenaga annotator terlatih (bisa membedakan deforestasi dari
+          logging, kebakaran, pertanian).
+    \item Waktu berbulan-bulan.
+    \item Biaya puluhan juta rupiah.
+\end{itemize}
+
+\textbf{GFW (Global Forest Watch)} \cite{hansen2013high} menyediakan
+\textit{lossyear} layer: peta tahunan kehilangan tutupan pohon dari
+tahun 2000--2023. Ini adalah \textbf{satu-satunya dataset deforestasi
+open-access yang mencakup Indonesia}.
+
+\textbf{Tapi GFW punya masalah:}
+\begin{itemize}[nosep]
+    \item Berasal dari Landsat (30~m). Jadi 1 pixel GFW = 9 pixel
+          Sentinel-2.
+    \item Ini menciptakan \textbf{label noise struktural}: batas
+          deforestasi di GFW tidak presisi di resolusi 10~m.
+    \item Ada juga \textbf{temporal noise}: GFW melaporkan perubahan
+          tahunan, sementara komposit kami spesifik ke 2020 dan 2023.
+          Deforestasi yang terjadi 2021 atau 2022 tercatat sebagai
+          "perubahan" tapi timing-nya tidak tepat.
+\end{itemize}
+
+\textbf{Mengapa tetap pakai GFW?} Karena ini adalah \textit{proof of
+concept}. Tujuan kami bukan mencapai akurasi maksimal, tapi
+\textbf{membuktikan pipeline end-to-end bisa jalan}. Kalau pipeline
+ini berhasil dengan label noise tinggi, maka dengan label yang lebih
+baik (manual, resolusi tinggi), hasilnya pasti lebih baik.
+
+\subsection{Dataset Statistics}
+
+\begin{itemize}[nosep]
+    \item \textbf{Sumber data:} 13 scene Sentinel-2 mencakup hutan
+          lindung di Riau dan Kalimantan Tengah.
+    \item \textbf{Total paired chips (pre+post):} 40,484.
+    \item \textbf{Train / Val / Test:} 23,135 / 5,822 / 11,527.
+    \item \textbf{Global positive pixel ratio:} 0.38\%.
+    \item \textbf{Chips dengan zero deforestation:} 74\% (30,000
+          chips dari 40,484).
+    \item \textbf{Perbandingan train vs test:} Test set punya density
+          deforestasi lebih tinggi (0.9\% vs 0.38\%) — ini penting
+          nanti untuk interpretasi hasil.
+\end{itemize}
+
+\subsection{Pertanyaan Potensial di Sidang}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Kenapa train-test split-nya tidak
+          random? Kenapa dipisah per scene?}}
+    \item{\textbf{A:} Kalau random, chips dari scene yang sama bisa
+          masuk train dan test. Model akan "menghafal" karakteristik
+          scene itu. Dengan split geografis, kita menguji
+          generalization: apakah model bisa mendeteksi deforestasi
+          di lokasi yang belum pernah dilihat? Ini lebih realistis.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{13 scene itu seberapa representatif
+          untuk Indonesia?}}
+    \item{\textbf{A:} Terbatas. Riau dan Kalteng adalah hot-spot
+          deforestasi, tapi tipe hutan di Papua, Kalimantan Utara,
+          Sulawesi berbeda. Generalizability masih perlu diuji.} 
+\end{itemize}
+
+% ======================================================================
+\section{Teori Dasar: Biar Paham Betul}
+% ======================================================================
+
+\subsection{Apa Itu Image Segmentation?}
+Image segmentation = memberi label ke \textbf{setiap pixel} dalam
+gambar. Bukan cuma "apakah gambar ini ada hutan?" tapi "pixel mana
+saja yang merupakan hutan?".
+
+Dalam kasus kami: setiap pixel output adalah probabilitas antara 0
+(bukan deforestasi) dan 1 (deforestasi). Threshold di 0.5 untuk
+dapatkan mask biner.
+
+\subsection{Apa Itu U-Net?}
+U-Net \cite{ronneberger2015unet} adalah arsitektur deep learning
+untuk segmentasi, bentuknya seperti huruf U:
+\begin{itemize}[nosep]
+    \item \textbf{Sisi kiri (encoder):} Konvolusi + pooling.
+          Mengekstrak fitur dari gambar, dari detail halus (tepi,
+          tekstur) ke abstrak (bentuk, objek). Resolusi mengecil
+          (64$\times$64 $\rightarrow$ 32$\times$32 $\rightarrow$
+          16$\times$16 $\rightarrow$ 8$\times$8 $\rightarrow$
+          4$\times$4).
+    \item \textbf{Dasar (bottleneck):} Fitur paling abstrak. Model
+          "memahami" apa yang ada di gambar secara global.
+    \item \textbf{Sisi kanan (decoder):} Upsampling + konvolusi.
+          Mengembalikan resolusi ke ukuran asli. Menggabungkan fitur
+          abstrak dari bottleneck dengan fitur detail dari encoder
+          (via \textbf{skip connections}).
+    \item \textbf{Skip connections:} Ini inovasi utama U-Net.
+          Decoder tidak hanya bekerja dari bottleneck, tapi juga
+          menerima informasi langsung dari encoder di level yang
+          sama. Ini mempertahankan detail spasial (posisi, batas).
+\end{itemize}
+
+\subsection{Apa Itu ResNet34?}
+ResNet \cite{he2016deep} adalah encoder yang menggunakan
+\textbf{residual blocks}: alih-alih belajar $F(x)$ langsung, belajar
+$F(x) = H(x) - x$ (residual). Keuntungan:
+\begin{itemize}[nosep]
+    \item Gradient bisa mengalir langsung melalui shortcut connections
+          (mencegah vanishing gradient di jaringan dalam).
+    \item 34 layer dengan 21.3M parameter.
+    \item Tersedia pretrained di ImageNet (14 juta gambar natural).
+\end{itemize}
+
+\subsection{Apa Itu Siamese Network?}
+Siamese = "kembar". Dua subnet dengan \textbf{weight yang sama persis}
+(shared weights). Input berbeda (pre dan post), encoder identik.
+Keluaran encoder dibandingkan.
+
+\textbf{Kenapa weight sharing?} Karena kita ingin encoder mengekstrak
+fitur yang konsisten. Kalau encoder pre dan post berbeda, model bisa
+"curang": satu encoder belajar deteksi hutan, satu lagi belajar
+deteksi non-hutan. Dengan weight sharing, encoder \textit{harus}
+mengekstrak fitur yang sama dari kedua input — perbedaan hanya muncul
+dari inputnya.
+
+\subsection{Apa Itu IoU (Intersection over Union)?}
+\textbf{Metric paling penting untuk segmentasi.}
+
+$$IoU = \frac{TP}{TP + FP + FN}$$
+
+\begin{itemize}[nosep]
+    \item \textbf{TP (True Positive):} Pixel yang benar-benar
+          deforestasi dan diprediksi sebagai deforestasi.
+    \item \textbf{FP (False Positive):} Pixel yang bukan deforestasi
+          tapi diprediksi deforestasi (false alarm).
+    \item \textbf{FN (False Negative):} Pixel deforestasi yang tidak
+          terdeteksi (missed detection).
+\end{itemize}
+
+IoU = 1 artinya prediksi sempurna. IoU = 0 artinya tidak ada overlap.
+Dalam segmentasi satelit, IoU 0.5 sudah dianggap bagus untuk objek
+kecil.
+
+\subsection{Apa Itu Dice Loss?}
+Dice loss adalah fungsi loss yang digunakan untuk training:
+$$DiceLoss = 1 - \frac{2 \times TP + \epsilon}{2 \times TP + FP + FN + \epsilon}$$
+
+Ini adalah \textbf{smoothing} dari IoU. Bedanya: TP dihitung 2$\times$
+sehingga lebih toleran terhadap false positives. Smoothing $\epsilon$
+mencegah division by zero.
+
+\textbf{Mengapa efektif untuk imbalance?} Karena hanya menghitung
+berdasarkan TP, FP, FN — \textbf{tidak dipengaruhi oleh TN (True
+Negative)}. Dalam dataset dengan 99.62\% background, TN mendominasi
+total pixel. Cross-entropy loss akan puas dengan prediksi
+all-background karena akurasi 99.62\%. Dice loss tidak peduli dengan
+background yang benar — hanya peduli dengan \textit{overlap} terhadap
+kelas positif.
+
+% ======================================================================
+\section{Arsitektur: Kenapa Tiga Model?}
+% ======================================================================
+
+\subsection{Pertanyaan Fundamental}
+Untuk multi-temporal deforestation, ada \textbf{dua pertanyaan}:
+\begin{enumerate}[nosep]
+    \item Apakah menggunakan informasi pre-event \textit{sama sekali}
+          membantu dibandingkan hanya post-event?
+    \item Kalau ya, \textbf{bagaimana cara terbaik} menggabungkan
+          pre dan post?
+\end{enumerate}
+
+Untuk menjawabnya kita butuh 3 model:
+
+\subsection{Model 1: Single-Date (Baseline)}
+\begin{itemize}[nosep]
+    \item Input: 5 channel (post-event only: R, G, B, NIR, NDVI).
+    \item Arsitektur: SimpleUNet (ResNet34-style, 21.3M params).
+    \item \textbf{Mengapa ini baseline?} Ini mewakili \textit{status
+          quo}: kebanyakan sistem deteksi deforestasi menggunakan
+          satu citra saja. Lihat hutan, lihat bukan hutan. Tidak ada
+          informasi perubahan.
+    \item \textbf{Keterbatasan:} Tidak bisa membedakan "lahan yang
+          selalu terbuka" dengan "lahan yang baru dibuka". Kebun
+          sawit, ladang kering, tanah kosong — semua terlihat mirip
+          dengan deforestasi di satu titik waktu.
+\end{itemize}
+
+\subsection{Model 2: Stacked Multi-Temporal}
+\begin{itemize}[nosep]
+    \item Input: 10 channel (5 pre + 5 post, di-concatenate).
+    \item Arsitektur: Sama dengan baseline, layer pertama diadaptasi
+          dari 3 channel (pretrained) ke 10 channel.
+    \item \textbf{Mengapa ada model ini?} Untuk menguji: apakah
+          dengan memberikan informasi pre dan post \textit{tanpa
+          struktur khusus}, model bisa belajar perubahan?
+    \item \textbf{Masalah:} Model menerima 10 channel, tapi tidak
+          tahu mana pre dan mana post. Channel 1-5 pre, 6-10 post.
+          Model harus belajar sendiri bahwa perbedaan channel 1-5
+          vs 6-10 itu signifikan. Ini tugas tambahan yang tidak perlu.
+\end{itemize}
+
+\subsection{Model 3: Siamese FC-Siam-diff}
+\begin{itemize}[nosep]
+    \item Input: Pre (5 channel) dan Post (5 channel) diproses
+          \textbf{terpisah}.
+    \item Arsitektur: Dua encoder ResNet34 dengan weight sharing.
+          Decoder menerima $[f_{post}, f_{pre}, f_{post} - f_{pre}]$.
+    \item \textbf{Inovasi:} Perbedaan fitur dihitung \textbf{secara
+          eksplisit} di setiap level decoder. Model tidak perlu
+          menebak mana yang berubah — perubahannya sudah disediakan.
+    \item \textbf{Mengapa weight sharing?} Agar encoder menghasilkan
+          representasi yang konsisten. Perbedaan output encoder
+          semata-mata karena perbedaan input (pre vs post), bukan
+          karena encoder berbeda.
+\end{itemize}
+
+\subsection{Mengapa Bukan Model Lain?}
+
+\begin{itemize}
+    \item{\textbf{Vision Transformer (ViT):} Butuh data sangat besar
+          ($>$100k images) untuk performa baik. Kita cuma punya 23k
+          chips, dan itu pun 74\% tanpa deforestasi.}
+    \item{\textbf{DeepLabv3+:} Arsitektur kuat, tapi atrous
+          convolution-nya (dilated convolution) boros memori untuk
+          chip kecil 64$\times$64. Keuntungan ASPP (Atrous Spatial
+          Pyramid Pooling) untuk multi-scale context kurang berguna
+          pada chip kecil.}
+    \item{\textbf{SegNet:} Lebih efisien memori (tanpa skip
+          connections menyimpan banyak data), tapi akurasi boundary
+          lebih rendah. Untuk deteksi deforestasi, boundary presisi
+          itu penting.}
+    \item{\textbf{Attention U-Net:} Menambahkan attention gate di
+          skip connections. Ini interessante, tapi menambah
+          kompleksitas. Prioritas kami adalah baseline multi-temporal
+          dulu.}
+\end{itemize}
+
+\subsection{Pertanyaan Potensial di Sidang}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Kenapa ResNet34 bukan ResNet50?}}
+    \item{\textbf{A:} ResNet50 (25.6M params) tidak muat di memori
+          dengan batch 64. Selain itu, untuk chip 64$\times$64,
+          representasi ResNet34 sudah cukup. Bottleneck ResNet50
+          (1$\times$1, 3$\times$3, 1$\times$1) baru berguna untuk
+          gambar lebih besar ($>$224$\times$224).}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Bukannya weight sharing menghambat
+          representasi spesifik?}}
+    \item{\textbf{A:} Weight sharing memaksa encoder mengekstrak
+          fitur yang sama dari pre dan post. Justru ini yang kita
+          mau: perbedaan deteksi harus berasal dari input, bukan dari
+          encoder. Analogi: dua foto diambil kamera yang sama —
+          perbedaan hasil karena subjeknya berubah, bukan karena
+          kameranya berbeda.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Ada opsi arsitektur temporal lain?}}
+    \item{\textbf{A:} Banyak. ConvLSTM, 3D CNN, Temporal Attention
+          Transformer. Tapi untuk 2 waktu (pre/post), Siamese sudah
+          optimal. Arsitektur temporal kompleks baru berguna untuk
+          time-series multi-waktu ($>$5 timestep).}
+\end{itemize}
+
+% ======================================================================
+\section{Training: Semua Detail + Alasannya}
+% ======================================================================
+
+\subsection{Fungsi Loss: Kenapa Dice?}
+
+\textbf{Pertanyaan inti:} Dataset kita punya 0.38\% pixel positif,
+99.62\% background. Loss function yang tidak dirancang untuk imbalance
+akan gagal total.
+
+\textit{Kita coba jelaskan dengan analogi:} Bayangkan kita mencari
+jarum di tumpukan jerami. Cross-entropy = ukur seberapa benar kita
+mengidentifikasi jerami. Dice loss = ukur seberapa baik kita
+menemukan jarum.
+
+\textbf{Matematika sederhana:}
+\begin{itemize}[nosep]
+    \item \textbf{Cross-Entropy:} $CE = -[y \log(p) + (1-y) \log(1-p)]$.
+          Untuk setiap pixel, hitung loss-nya. Background (99.62\%)
+          mendominasi total loss. Model optimal: prediksi semua 0
+          (background), CE rendah, IoU = 0.
+    \item \textbf{Dice Loss:} $Dice = 1 - \frac{2TP}{2TP+FP+FN}$.
+          Hanya pixel yang diprediksi positif berkontribusi. Tidak
+           peduli background sebanyak apapun.
+\end{itemize}
+
+\textbf{Uji coba loss lain:}
+\begin{itemize}[nosep]
+    \item \textbf{Focal Loss:} Modifikasi CE yang menekan loss dari
+          easy samples. Hasil: lebih buruk dari Dice. Kemungkinan
+          karena hyperparameter $\gamma$ dan $\alpha$ sulit dituning
+          untuk extreme imbalance.
+    \item \textbf{Tversky Loss:} Variasi Dice dengan bobot berbeda
+          untuk FP dan FN. Dengan $\alpha=0.7$ (bobot FN lebih
+          besar), recall naik tapi precision turun drastis. Untuk
+          aplikasi yang membutuhkan kepercayaan tinggi (alert
+          system), precision juga penting.
+    \item \textbf{Lov\'asz-Softmax:} Optimasi langsung IoU. Hasil:
+          setara dengan Dice tapi training lebih lambat (perlu
+          sorting probabilities per batch).
+\end{itemize}
+
+\subsection{Optimizer: Kenapa AdamW?}
+
+\textbf{Adam} (Adaptive Moment Estimation):
+\begin{itemize}[nosep]
+    \item Setiap parameter punya learning rate sendiri berdasarkan
+          history gradient-nya. Cocok untuk masalah sparse gradient
+          (banyak pixel background, sedikit foreground).
+    \item Lebih stabil daripada SGD untuk loss landscape yang kompleks.
+\end{itemize}
+
+\textbf{AdamW = Adam + Weight Decay yang benar:}
+\begin{itemize}[nosep]
+    \item Weight decay = menambahkan $\lambda \cdot w$ ke gradient.
+          Efek: parameter yang tidak berguna menuju nol (regularisasi).
+    \item Di Adam biasa, weight decay tercampur dengan adaptive
+          gradient — tidak efektif. AdamW memisahkan keduanya.
+    \item Weight decay $5\times 10^{-4}$: nilai standar untuk
+          ResNet. Terlalu besar ($10^{-2}$): underfitting. Terlalu
+          kecil ($10^{-5}$): tidak ada efek.
+\end{itemize}
+
+\subsection{Learning Rate Scheduling: Kenapa Cosine Annealing?}
+
+\textbf{Learning rate} menentukan seberapa besar langkah update
+parameter.
+
+\begin{itemize}[nosep]
+    \item \textbf{Awal training:} LR tinggi ($10^{-4}$) = eksplorasi
+          cepat. Model bergerak cepat di loss landscape.
+    \item \textbf{Akhir training:} LR rendah (menuju 0) = konvergensi
+          halus. Model mencari minimum lokal yang baik.
+\end{itemize}
+
+\textbf{Cosine Annealing:} LR mengikuti kurva cosinus dari
+$10^{-4} \rightarrow 0$ selama 30 epoch. Transisi smooth.
+
+\textbf{Alternatif yang tidak dipilih:}
+\begin{itemize}[nosep]
+    \item \textbf{Step decay} (turun di epoch 10, 20): Penurunan
+          mendadak bisa mengganggu konvergensi.
+    \item \textbf{Reduce on plateau} (turun kalau val loss stagnan):
+          Butuh patience tuning. Untuk training dengan 30 epoch,
+          tidak cukup waktu untuk plateau detection.
+    \item \textbf{One-cycle}: Menaikkan LR dulu baru turun. Bagus
+          untuk fast training tapi butuh tuning max LR.
+\end{itemize}
+
+\subsection{Gradient Accumulation: Kenapa Accum=2?}
+
+\textbf{Masalah:} RTX 3060 hanya muat batch size 64. Tapi batch 64
+terlalu kecil untuk training stabil dengan class imbalance.
+
+\textbf{Solusi:} Gradient accumulation. Proses:
+\begin{enumerate}[nosep]
+    \item Forward pass batch 1 (64 chips), hitung loss, hitung
+          gradient. \textbf{Tapi jangan update parameter.}
+    \item Forward pass batch 2 (64 chips), hitung loss, akumulasi
+          gradient. \textbf{Baru update parameter.}
+\end{enumerate}
+
+\textbf{Efek:} Gradient dari 128 chips diakumulasi sebelum update.
+Sama seperti batch size 128, tapi tanpa perlu memori 2$\times$.
+
+\textbf{Mengapa accumulation 2, bukan 4 atau 8?} Accum 2 sudah
+cukup untuk mencegah collapse. Accum 4 (efektif 256) tidak memberikan
+peningkatan signifikan. Accum 8 tidak muat di memori (perlu nyimpen
+activation untuk 512 chips).
+
+\subsection{Oversampling: Kenapa 10$\times$?}
+
+\textbf{Masalah:} 74\% chips tanpa deforestasi. Sampling acak:
+rata-rata hanya 17 dari 64 chips per batch mengandung deforestasi.
+
+\textbf{Oversampling:} Setiap chip positif di-sampling 10$\times$
+lebih sering. Cara: dataset dibagi jadi positif (26\%) dan negatif
+(74\%). Dari positif, sampling dengan replacement 10$\times$ ukuran
+asli. Gabung dengan negatif, shuffle.
+
+\textbf{Efek:} Proporsi chips positif dalam batch $\sim$50\%. Model
+cukup sering melihat deforestasi untuk belajar.
+
+\textbf{Mengapa 10, bukan 5 atau 20?}
+\begin{itemize}[nosep]
+    \item \textbf{5$\times$:} Cuma 30\% batch positif. Masih terlalu
+          sedikit — model tetap bias ke background.
+    \item \textbf{20$\times$:} Dominasi chips positif yang sama
+          (di-sampling berulang). Model overfit ke beberapa contoh
+          spesifik.
+    \item \textbf{10$\times$:} Proporsi $\sim$50:50. Ideal.
+\end{itemize}
+
+\subsection{Augmentasi: Kenapa Minimal?}
+
+Data augmentation = memvariasikan data training secara artifisial.
+Tujuan: meningkatkan generalisasi.
+
+\textbf{Kami hanya menggunakan flip horizontal + vertikal.}
+Mengapa?
+\begin{itemize}[nosep]
+    \item \textbf{Spectral consistency sangat penting.} Deforestasi
+          dideteksi dari perubahan spektral (kandungan NIR turun,
+          NDVI turun). Rotasi mengubah sudut datang cahaya, brightness
+          mengubah intensitas, Gaussian noise mengubah distribusi
+          spektral. Semua ini merusak sinyal deforestasi.
+    \item \textbf{Definisi "berubah" itu absolut.} Kalau kita
+          mengubah kecerahan pre dan post secara independen, selisih
+          NDVI sebelum-sesudah juga berubah — padahal di lapangan
+          tidak ada perubahan kecerahan.
+    \item \textbf{Eksperimen validasi:} Heavy augmentation (rotation
+          $\pm 30^\circ$, brightness $\pm 10\%$, noise $\sigma=0.01$)
+          menurunkan val IoU dari 0.044 ke 0.031. Penurunan 30\%.
+\end{itemize}
+
+\textbf{Flip aman:} Deforestasi tidak memiliki orientasi — hutan
+yang dibuka dari utara atau selatan tetap deforestasi. Flip tidak
+mengubah nilai spektral.
+
+\subsection{AMP (Mixed Precision): Kenapa?}
+
+\textbf{FP32 vs FP16:}
+\begin{itemize}[nosep]
+    \item FP32: 32-bit floating point. Presisi tinggi, memori besar.
+    \item FP16: 16-bit floating point. Presisi setengah, memori
+          setengah, throughput 2$\times$ di Tensor Cores.
+\end{itemize}
+
+\textbf{AMP} = Automatic Mixed Precision. Bagian kritis (loss
+computation, gradient scaling) tetap FP32. Bagian komputasi berat
+(konvolusi) di FP16.
+
+\textbf{Keuntungan untuk RTX 3060:}
+\begin{itemize}[nosep]
+    \item Tensor Cores (generasi Ampere) memberikan 2-3$\times$
+          throughput di FP16 vs FP32.
+    \item Memory usage turun 30\% — memungkinkan batch 64 atau
+          model dengan lebih banyak channel.
+    \item Loss scaling mencegah underflow gradient (gradient terlalu
+          kecil untuk FP16).
+\end{itemize}
+
+\subsection{Gradient Clipping: Kenapa 1.0?}
+
+\textbf{Problem:} Dengan Dice loss dan imbalance, kadang ada batch
+yang loss-nya sangat tinggi (misal batch berisi deforestasi yang
+sulit). Gradient-nya bisa sangat besar, menyebabkan parameter update
+yang ekstrem — merusak representasi.
+
+\textbf{Solusi:} Clip gradient norm ke 1.0. Artinya: kalau panjang
+vektor gradient $>$ 1.0, skala ulang ke 1.0. Informasi arah gradient
+tetap, besarnya dibatasi.
+
+\textbf{Kenapa 1.0?} Terlalu kecil (0.1) menghambat learning.
+Terlalu besar (10.0) tidak efektif. 1.0 adalah nilai default yang
+umum.
+
+\subsection{RAM Caching: Kenapa?}
+
+\textbf{Tanpa cache:} Setiap epoch, 23,135 chips dibaca dari SSD.
+Setiap chip: load file NPZ (10 bands $\times$ 64$\times$64), parse,
+stack ke tensor. Total: $\sim$210 detik/epoch. 30 epoch = 105 menit
+hanya I/O.
+
+\textbf{Dengan cache:} Epoch 1: load semua ke RAM (24 GB). Epoch
+2-30: baca dari RAM. $\sim$27 detik/epoch. 30 epoch = 16 menit.
+
+\textbf{Mengapa feasible?} 23,135 chips $\times$ 10 bands $\times$
+64 $\times$ 64 $\times$ 4 bytes = $\sim$3.8 GB. Komputer punya 32 GB
+RAM, 24 GB free setelah OS. Muat.
+
+% ======================================================================
+\section{Inference \& Evaluation}
+% ======================================================================
+
+\subsection{Test-Time Augmentation (TTA)}
+
+\textbf{Ide:} Saat inference, jangan hanya jalankan sekali. Jalankan
+3 kali (original, flip horizontal, flip vertical), rata-rata
+probabilitasnya.
+
+\textbf{Kenapa efektif?} Ensemble 3 model (dengan parameter sama
+tapi input berbeda). Setiap varian flip punya "kesalahan" berbeda.
+Rata-rata menghaluskan kesalahan.
+
+\textbf{Hasil:}
+\begin{itemize}[nosep]
+    \item Single-date: IoU 0.119 $\rightarrow$ 0.122 (+2.5\%).
+    \item Siamese: IoU 0.132 $\rightarrow$ 0.137 (+3.8\%).
+\end{itemize}
+
+\subsection{Global vs Per-Sample Metrics}
+
+Ini \textbf{sangat penting} untuk dipahami. Dua cara menghitung IoU:
+
+\textbf{Per-sample mean:}
+\begin{enumerate}[nosep]
+    \item Hitung IoU tiap chip: $IoU_1, IoU_2, ..., IoU_n$.
+    \item Rata-rata: $\frac{1}{n}\sum IoU_i$.
+    \item \textbf{Masalah:} 74\% chips IoU=0 (tanpa deforestasi).
+          Mean IoU $\sim$0.013. Angka ini sangat rendah dan tidak
+          informatif.
+\end{enumerate}
+
+\textbf{Global (summed):}
+\begin{enumerate}[nosep]
+    \item Jumlahkan semua TP, FP, FN dari semua chips.
+    \item $IoU_{global} = \frac{\sum TP}{\sum TP + \sum FP + \sum FN}$.
+    \item \textbf{Keuntungan:} Chips tanpa deforestasi tidak
+          berkontribusi (TP=0, FP=0, FN=0). Hanya chips dengan
+          deforestasi yang memengaruhi metrik.
+\end{enumerate}
+
+\textbf{Kapan pakai yang mana?} Per-sample: kalau kita peduli
+per-chip (setiap chip harus benar). Global: kalau kita peduli total
+area (seberapa luas deforestasi terdeteksi). Untuk aplikasi
+monitoring, global lebih relevan.
+
+\subsection{Mengapa Threshold 0.5?}
+
+Dice loss secara implisit mengoptimalkan threshold 0.5. Model
+dilatih untuk output probabilitas, dan dice loss optimal saat
+threshold 0.5. Kalau kita ubah threshold (misal 0.3), precision
+turun, recall naik — trade-off. 0.5 adalah titik natural.
+
+\subsection{Pertanyaan Potensial}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Kenapa validation IoU lebih rendah dari
+          test IoU?}}
+    \item{\textbf{A:} Distribusi deforestasi tidak seragam. Test set
+          memiliki proporsi deforestasi lebih tinggi (0.9\%) daripada
+          validation set (0.38\%). Karena metrik global dihitung dari
+          total TP/FP/FN, semakin banyak deforestasi sebenarnya yang
+          ada, semakin tinggi IoU-nya (selama model tidak
+          all-background). Ini menunjukkan bahwa model bekerja lebih
+          baik di area dengan deforestasi lebih padat.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Apakah metrik global tidak menyesatkan?
+          Kalau satu chip mendominasi, metrik bisa bias.}}
+    \item{\textbf{A:} Valid. Itu sebabnya kami juga melaporkan
+          per-sample mean. Tapi untuk tujuan deteksi area, chip besar
+          dengan banyak deforestasi harusnya berbobot lebih —
+          karena area deforestasi yang lebih luas lebih penting untuk
+          dideteksi. Global metrics mencerminkan ini.}
+\end{itemize}
+
+% ======================================================================
+\section{Hasil: Interpretasi Lengkap}
+% ======================================================================
+
+\subsection{Tabel Hasil}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{IoU} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
+\midrule
+Single-date (post only) & 0.122 & 0.198 & 0.239 & 0.217 \\
+Multi-temporal (stacked) & 0.119 & 0.154 & 0.344 & 0.212 \\
+\textbf{Siamese (ours)} & \textbf{0.137} & 0.196 & 0.311 & \textbf{0.240} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analisis Per Model}
+
+\textbf{Single-date (post only):}
+\begin{itemize}[nosep]
+    \item Precision tertinggi (0.198). Artinya: dari semua prediksi
+          positif, 19.8\% benar.
+    \item Recall terendah (0.239). Hanya 23.9\% deforestasi
+          sebenarnya yang terdeteksi.
+    \item \textbf{Interpretasi:} Model ini konservatif. Hanya
+          memprediksi positif kalau sangat yakin. Akibatnya, banyak
+          deforestasi terlewat.
+    \item \textbf{Kenapa?} Karena tidak punya informasi "sebelumnya",
+          model harus menebak dari post-event saja. Area yang
+          spektralnya mirip deforestasi (lahan terbuka, pertanian)
+          tidak bisa dibedakan.
+\end{itemize}
+
+\textbf{Stacked multi-temporal:}
+\begin{itemize}[nosep]
+    \item Recall tertinggi (0.344). Mendeteksi 34.4\% deforestasi.
+    \item Precision terendah (0.154). Banyak false positive.
+    \item \textbf{Interpretasi:} Model ini agresif. Concatenation
+          10 channel memberi informasi pre+post, tapi model tidak
+          bisa memanfaatkannya dengan baik. Akibatnya: perubahan
+          spektral \textit{apapun} dianggap deforestasi — termasuk
+          perubahan musiman (pertanian, air).
+    \item \textbf{Kenapa stacking kalah?} Informasi "mana channel pre
+          dan post" hanya dari urutan. Model harus belajar relasi
+          antar channel 1-5 vs 6-10. Ini tugas tambahan yang tidak
+          perlu. Siamese memberikan relasi ini secara eksplisit.
+\end{itemize}
+
+\textbf{Siamese FC-Siam-diff:}
+\begin{itemize}[nosep]
+    \item IoU tertinggi (0.137), F1 tertinggi (0.240).
+    \item Precision (0.196) hampir menyamai single-date.
+    \item Recall (0.311) mendekati stacked.
+    \item \textbf{Interpretasi:} \textit{Best of both worlds}.
+          Explicit difference features memungkinkan model mendeteksi
+          perubahan dengan presisi tinggi (seperti single-date) dan
+          recall baik (seperti multi-temporal).
+    \item \textbf{Kenapa siamese menang?} Karena model tidak perlu
+          menebak:
+          \begin{enumerate}[nosep]
+              \item Encoder weight sharing: representasi konsisten.
+              \item Decoder menerima $f_{post} - f_{pre}$: perubahan
+                    langsung diberikan, bukan disembunyikan.
+              \item Skip connections dengan difference: perubahan di
+                    berbagai skala (dari detail tepi hingga fitur
+                    global).
+          \end{enumerate}
+\end{itemize}
+
+\subsection{Mengapa IoU Hanya 0.137?}
+
+\textbf{Pertanyaan paling berat.} Jawaban jujur:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Label noise (faktor dominan):} GFW label 30~m,
+          citra 10~m. Satu pixel GFW = 9 pixel S2. Misal: deforestasi
+          0.5 ha di GFW — area 50$\times$50m — direpresentasikan
+          sebagai $\sim$3 pixel Landsat (masing-masing 30$\times$30m).
+          Di S2 (10m), ini area 50$\times$50 pixel. Tapi labelnya
+          hanya 3 pixel. Model bingung: prediksi besar, label kecil.
+          Ini dihitung sebagai FP + FN, menurunkan IoU.
+    \item \textbf{Class imbalance:} 0.38\% positif. Dari 1000 pixel,
+          hanya 4 yang deforestasi. Model bisa prediksi salah 2 dan
+          masih akurasi 99.8\%. Tapi IoU-nya anjlok.
+    \item \textbf{74\% chips tanpa deforestasi:} Ini masalah untuk
+          training (pengaruh ke loss) dan untuk evaluasi (pengaruh ke
+          per-sample metrics).
+    \item \textbf{Chip size 64$\times$64:} Terlalu kecil untuk konteks
+          landscape. Model tidak bisa membedakan "ini tepi hutan"
+          dari "ini deforestasi baru".
+    \item \textbf{Cloud-free composite:} Deforestasi yang terjadi di
+          pertengahan tahun ter-blur dalam komposit.
+\end{enumerate}
+
+\subsection{Perbandingan dengan ICP Paper (NDVI pseudo-label)}
+
+ICP paper (sebelumnya) mencapai IoU 0.73. \textbf{Mengapa jauh
+berbeda?}
+\begin{itemize}[nosep]
+    \item Label ICP = NDVI differencing: $\text{NDVI}_{post} -
+          \text{NDVI}_{pre}$. Threshold untuk menentukan deforestasi.
+          Ini adalah \textbf{metode hand-crafted} — label dibuat dari
+          data yang sama dengan input. Model U-Net belajar meniru
+          decision boundary yang sudah ada. Wajar IoU tinggi.
+    \item GFW label = \textbf{independent source} dari Landsat.
+          Model harus belajar korelasi antara citra S2 10~m dan label
+          L8 30~m. Ini tugas yang jauh lebih sulit.
+    \item ICP IoU 0.73 = validasi internal (NDVI vs NDVI). GFW IoU
+          0.137 = validasi eksternal (S2 vs Landsat). Dua hal berbeda.
+\end{itemize}
+
+\subsection{Overfitting: Analisis}
+
+\textbf{Gejala:} Val IoU peak di epoch 4-6, lalu turun. Training
+loss terus turun (model menghafal data training). Validation loss
+naik atau plateau.
+
+\textbf{Penyebab:}
+\begin{itemize}[nosep]
+    \item \textbf{Rasio parameter:sampel:} 21.3M parameter, 23k
+          training chips (efektif hanya $\sim$6k yang positif).
+          Rasio 3,550:1. Idealnya $<$ 100:1.
+    \item \textbf{Dataset homogen:} 13 scene dari 2 provinsi.
+          Variasi terbatas — model cepat "bosan" dan mulai menghafal.
+    \item \textbf{Regularisasi terbatas:} Weight decay 5e-4 saja.
+          Dropout akan membantu, tapi menambah waktu training dan
+          bisa menurunkan peak performance.
+\end{itemize}
+
+\textbf{Solusi potensial (untuk sidang/future work):}
+\begin{itemize}[nosep]
+    \item \textbf{More data:} Tambah scene dari provinsi lain.
+    \item \textbf{Label smoothing:} Mengurangi confidence model
+          terhadap label noise.
+    \item \textbf{Dropout:} Di decoder (biasanya 0.2-0.5).
+    \item \textbf{Early stopping:} Berhenti di epoch 5-6 (peak val
+          IoU). Tidak perlu 30 epoch penuh.
+\end{itemize}
+
+% ======================================================================
+\section{Pipeline: Gambaran Sistem End-to-End}
+% ======================================================================
+
+\begin{enumerate}[nosep]
+    \item \textbf{Data Export (GEE):} Google Earth Engine.
+          Export Sentinel-2 composite (2020, 2023) + GFW lossyear
+          layer sebagai GeoTIFF.
+    \item \textbf{Chip Generation:} Tile GeoTIFF ke 64$\times$64
+          chips. Pair pre/post. Simpan sebagai NPZ (5 bands + mask).
+    \item \textbf{Training:} Load chips ke RAM. Oversampling.
+          DataLoader dengan augmentasi flip. Model forward/backward
+          dengan AMP + gradient accumulation. Log metrics ke CSV.
+    \item \textbf{Inference:} Load chip test. TTA (3 flips).
+          Threshold 0.5. Hitung metrics (global + per-sample).
+          Simpan visualisasi (6-panel plot).
+    \item \textbf{Analisis:} Bandingkan 3 model. Plot kurva training.
+          Analisis error.
+\end{enumerate}
+
+\textbf{Hardware:}
+\begin{itemize}[nosep]
+    \item GPU: NVIDIA RTX 3060 (12GB VRAM).
+    \item CPU: Intel/AMD (cukup untuk data loading).
+    \item RAM: 32 GB (24 GB untuk cache).
+    \item Storage: SSD (I/O bottleneck tanpa cache).
+    \item OS: Windows 11 + WSL2 (Ubuntu).
+\end{itemize}
+
+\textbf{Software:}
+\begin{itemize}[nosep]
+    \item PyTorch 2.7, CUDA 12.x.
+    \item AMP (torch.cuda.amp).
+    \item Rich (progress bar TUI).
+    \item tmux (survive SSH disconnect).
+\end{itemize}
+
+\textbf{Performance:}
+\begin{itemize}[nosep]
+    \item Training 30 epochs: $\sim$15 menit (dengan cache).
+    \item Inference 11,527 chips + TTA: $\sim$12 menit.
+    \item GPU memory usage: $\sim$8 GB (peak).
+\end{itemize}
+
+% ======================================================================
+\section{Pertanyaan Sulit yang Mungkin Muncul}
+% ======================================================================
+
+\subsection{Tentang Relevansi \ dan Kontribusi}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{IoU 0.137 — ini sangat rendah. Apa
+          gunanya?}}
+    \item{\textbf{A:} Ini \textit{proof of concept}. Tujuan kami
+          bukan mencapai akurasi operasional, tapi membuktikan
+          pipeline end-to-end bisa berjalan dengan label yang ada.
+          IoU 0.137 dengan GFW label noise adalah baseline. Dengan
+          label manual (yang merupakan langkah logis berikutnya),
+          IoU diperkirakan meningkat 3-5$\times$. Nilai dari proyek
+          ini adalah: \textbf{(1)} pipeline dari GEE ke visualisasi,
+          \textbf{(2)} perbandingan arsitektur, \textbf{(3)} identifikasi
+          bottleneck (label noise adalah masalah utama).}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Apa bedanya dengan pekerjaan yang sudah
+          ada?}}
+    \item{\textbf{A:} Kebanyakan penelitian deforestasi menggunakan
+          label NDVI pseudo-label (seperti ICP paper kami sebelumnya)
+          atau label manual. Yang \textbf{unik} dari proyek kami:
+          menggunakan GFW label — yang available secara global — untuk
+          melatih model 10~m. Ini menunjukkan bahwa GFW, meskipun
+          tidak sempurna, bisa menjadi \textit{weak supervision} untuk
+          deteksi resolusi lebih tinggi. Kontribusi: \textbf{metode}
+          dan \textbf{pipeline}, bukan absolute accuracy.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Kenapa tidak langsung pake NDVI
+          differencing aja? Itu IoU-nya 0.73.}}
+    \item{\textbf{A:} NDVI differencing adalah metode \textit{rules-
+          based}: threshold manual yang mungkin tidak generalizable
+          ke lokasi lain. Deep learning bisa belajar pola yang lebih
+          kompleks dari data multi-band, bukan hanya NDVI. Selain
+          itu, proyek ini adalah eksperimen: \textit{can we leverage
+          existing GFW labels?} Jawabannya: yes, dengan batasan
+          tertentu.}
+\end{itemize}
+
+\subsection{Tentang Metode}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Mengapa tidak pakai data time-series
+          (multi-temporal $>$ 2 waktu)?}}
+    \item{\textbf{A:} Terbatas oleh GFW label — hanya tahunan. Kalau
+          kita punya 6 time points (2018-2023), labelnya cuma satu:
+          "deforestasi terjadi di tahun X". Tidak ada label per-waktu.
+          Model tidak bisa belajar temporal dynamics tanpa temporal
+          labels. Arsitektur 2-waktu (pre/post) adalah yang paling
+          sesuai dengan data yang ada.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Bukankah lebih baik pakai unsupervised
+          change detection?}}
+    \item{\textbf{A:} Unsupervised (seperti PCA, MAD, IR-MAD) tidak
+          memerlukan label. Tapi outputnya anomaly score — bukan
+          "deforestasi" secara semantik. Tidak bisa membedakan
+          deforestasi dari perubahan musiman, banjir, atau kebakaran.
+          Supervised learning memberikan \textit{semantic
+          understanding}: model belajar \textit{apa itu} deforestasi,
+          bukan hanya \textit{apa yang berubah}.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Ukuran chip 64$\times$64 itu terlalu
+          kecil. Kenapa tidak 256$\times$256?}}
+    \item{\textbf{A:} Terbatas GPU. Tapi yang lebih penting:
+          eksperimen dengan chip lebih besar membutuhkan re-export
+          data dari GEE + re-training + re-inference — siklus yang
+          panjang. Dengan 64$\times$64, siklus eksperimen cepat
+          ($\sim$15 menit per training). Ini memungkinkan hyperparameter
+          search yang ekstensif (9 konfigurasi). Setelah arsitektur
+          final dipilih, scaling ke chip lebih besar adalah engineering
+          work, bukan research.}
+\end{itemize}
+
+\subsection{Tentang Evaluasi}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Kenapa tidak pake Kappa atau AUC?}}
+    \item{\textbf{A:} Kappa: sensitive terhadap prevalence (proporsi
+          kelas). Dengan 0.38\% prevalence, Kappa bisa tinggi meski
+          IoU rendah. AUC (ROC): untuk binary classification dengan
+          threshold. Segmentasi adalah pixel-level, IoU adalah standar
+          de facto untuk segmentation task. Precision/Recall/F1
+          melengkapi IoU untuk interpretasi yang lebih nuanced.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Apakah hasil ini reproducible?}}
+    \item{\textbf{A:} Ya. Semua kode ada di GitHub (public). Semua
+          hyperparameter dicatat. Random seed di-set. Satu-satunya
+          yang tidak fully reproducible: cloud-free composite dari
+          GEE (algoritma median bisa sedikit berbeda tergantung
+          versi). Tapi secara umum, hasil harus konsisten dalam
+          $\pm 0.01$ IoU.}
+\end{itemize}
+
+\subsection{Tentang Aplikasi}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Apa rencana implementasi ke depannya?}}
+    \item{\textbf{A:} (1) Perbaiki label: manual annotation atau
+          Planet imagery (3m) untuk label lebih presisi. (2) Scale:
+          256$\times$256 chips, model lebih besar. (3) Operationalize:
+          deploy sebagai API yang menerima citra baru dan menghasilkan
+          alert. (4) Integrasi SAR Sentinel-1 untuk kemampuan
+          all-weather.}
+\end{itemize}
+
+\begin{itemize}
+    \item{\textbf{Q:} \textit{Apakah model bisa dipakai di daerah
+          lain?}}
+    \item{\textbf{A:} Belum diuji. Model dilatih di Riau dan Kalteng.
+          Generalisasi ke Papua (tipe hutan berbeda), Sumatera Barat
+          (topografi berbeda), atau Jawa (fragmentasi tinggi) perlu
+          diuji. Tapi karena arsitekturnya general-purpose, kami
+          optimis dengan fine-tuning atau tambahan data dari daerah
+          target.}
+\end{itemize}
+
+% ======================================================================
+\section{Limitations: Jawaban Jujur}
+% ======================================================================
+
+\begin{enumerate}[nosep]
+    \item \textbf{Label noise:} Ini batasan \textbf{fundamental}.
+          Selama kita pakai GFW label 30~m, akurasi maksimal terbatas.
+          Model tidak bisa lebih presisi dari labelnya.
+    \item \textbf{Chip size:} 64$\times$64 membatasi konteks spasial.
+          Tapi trade-off dengan GPU memory.
+    \item \textbf{Temporal coverage:} Dua waktu (pre/post) dengan
+          gap 3 tahun. Deforestasi di 2021 dan 2022 tercampur.
+          Idealnya: tahunan atau sub-tahunan.
+    \item \textbf{Geographic scope:} Hanya 13 scene dari 2 provinsi.
+          Belum mewakili keragaman hutan Indonesia.
+    \item \textbf{False positives:} Perubahan non-deforestasi
+          (pertanian, badan air musiman, kebakaran) masih menghasilkan
+          false positives.
+    \item \textbf{Cloud dependence:} Sentinel-2 optical — tidak bisa
+          menembus awan. Di musim hujan, bisa berbulan-bulan tanpa
+          citra bersih.
+\end{enumerate}
+
+% ======================================================================
+\section{Future Work: Arah Pengembangan}
+% ======================================================================
+
+\begin{enumerate}[nosep]
+    \item \textbf{Better labels:} Ini prioritas nomor satu. 500-1000
+          chips dengan label manual di resolusi 10~m akan memberikan
+          lompatan kualitas. Bisa juga pakai Planet imagery (3~m)
+          untuk annotasi.
+    \item \textbf{Larger chips:} 128$\times$128 atau 256$\times$256
+          dengan gradient accumulation lebih besar. Memberikan konteks
+          landscape yang lebih baik.
+    \item \textbf{SAR integration:} Sentinel-1 (radar) + Sentinel-2
+          (optical). Radar tidak terpengaruh awan. Kombinasi optical
+          + radar memberikan coverage temporal yang jauh lebih baik.
+    \item \textbf{Multi-temporal time-series:} 5+ time points dengan
+          temporal attention atau ConvLSTM. Bisa mendeteksi \textit{
+          kapan} deforestasi terjadi, bukan hanya \textit{apakah}.
+    \item \textbf{Post-processing:} Connected-component filtering
+          (buang prediksi $<$ 0.01 ha), CRF untuk boundary smoothing.
+    \item \textbf{Deployment:} API endpoint + dashboard monitoring.
+          Integrasi dengan Google Earth Engine untuk alert
+          near-real-time.
+    \item \textbf{Uncertainty estimation:} Monte Carlo Dropout atau
+          Deep Ensemble untuk memberikan confidence score pada setiap
+          prediksi.
+\end{enumerate}
+
+% ======================================================================
+\section{Quick Reference Cards}
+% ======================================================================
+
+\subsection*{Arsitektur Comparison}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Aspek} & \textbf{Single-date} & \textbf{Stacked} & \textbf{Siamese} \\
+\midrule
+Input channels & 5 (post) & 10 (pre+post) & 5+5 (terpisah) \\
+Parameters & 21.3M & 21.3M & 25.9M \\
+Fusion method & N/A & Concatenation & Explicit diff \\
+Pretrained & Adapted & Adapted & Shared \\
+Weight sharing & N/A & N/A & Yes \\
+Best IoU & 0.122 & 0.119 & \textbf{0.137} \\
+Key strength & Precision & Recall & Balance \\
+Key weakness & Low recall & Low precision & Complexity \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{Hyperparameter Summary}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Nilai} & \textbf{Alasan} \\
+\midrule
+Loss function & Dice (symmetric) & 0.38\% imbalance \\
+Optimizer & AdamW & Adaptive + weight decay \\
+Learning rate & $10^{-4}$ & Default Adam \\
+Weight decay & $5 \times 10^{-4}$ & Regularisasi ringan \\
+Scheduler & Cosine annealing & Smooth decay \\
+Batch size & 64 (eff. 128) & GPU memory \\
+Accumulation & 2 & Simulasi batch 128 \\
+Oversampling & 10$\times$ & 74\% zero-deforest chips \\
+Augmentation & H/V flip only & Spectral consistency \\
+Precision & AMP (FP16) & Tensor Cores speed \\
+Gradient clipping & 1.0 & Prevent gradient spikes \\
+Epochs & 30 & Overfitting after 6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{Defense Script — 60 Second Answers}
+
+\begin{itemize}[nosep]
+    \item{\textbf{Apa yang kamu buat?} Sistem deteksi deforestasi
+          otomatis dengan deep learning pada Sentinel-2 10~m,
+          menggunakan label GFW 30~m sebagai training target.}
+    \item{\textbf{Kenapa tiga model?} Untuk menguji apakah multi-
+          temporal fusion membantu, dan arsitektur mana yang terbaik.}
+    \item{\textbf{Kenapa IoU 0.137 rendah?} Label noise GFW (30m
+          vs 10m), extreme class imbalance (0.38\% positif), dan
+          74\% chips tanpa deforestasi.}
+    \item{\textbf{Mengapa siamese menang?} Karena explicit difference
+          features memberikan sinyal perubahan yang lebih bersih
+          daripada concatenation.}
+    \item{\textbf{Apa kontribusi utama?} Pipeline end-to-end dari
+          GEE ke trained model + perbandingan arsitektur + identifikasi
+          label noise sebagai bottleneck utama.}
+    \item{\textbf{Langkah selanjutnya?} Label manual, chip lebih
+          besar, SAR integration.}
+\end{itemize}
+
+% ======================================================================
+\bibliographystyle{unsrt}
+\bibliography{icp-refs}
+% ======================================================================
+
+\end{document}
