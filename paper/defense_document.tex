@@ -282,96 +282,525 @@ baik (manual, resolusi tinggi), hasilnya pasti lebih baik.
 \end{itemize}
 
 % ======================================================================
-\section{Teori Dasar: Biar Paham Betul}
+\section{Deep Dive: Konsep Fundamental}
 % ======================================================================
 
 \subsection{Apa Itu Image Segmentation?}
 Image segmentation = memberi label ke \textbf{setiap pixel} dalam
-gambar. Bukan cuma "apakah gambar ini ada hutan?" tapi "pixel mana
-saja yang merupakan hutan?".
+gambar. Bukan klasifikasi gambar (``apakah foto ini ada hutan?''),
+tapi klasifikasi per-pixel (``pixel mana yang merupakan hutan? pixel
+mana yang merupakan deforestasi?'').
 
-Dalam kasus kami: setiap pixel output adalah probabilitas antara 0
-(bukan deforestasi) dan 1 (deforestasi). Threshold di 0.5 untuk
-dapatkan mask biner.
+\textbf{Output model:} Untuk setiap pixel, model mengeluarkan
+probabilitas antara 0 dan 1. Probabilitas $>$ 0.5 = deforestasi.
+Hasil akhir: binary mask ukuran sama dengan input.
 
-\subsection{Apa Itu U-Net?}
-U-Net \cite{ronneberger2015unet} adalah arsitektur deep learning
-untuk segmentasi, bentuknya seperti huruf U:
-\begin{itemize}[nosep]
-    \item \textbf{Sisi kiri (encoder):} Konvolusi + pooling.
-          Mengekstrak fitur dari gambar, dari detail halus (tepi,
-          tekstur) ke abstrak (bentuk, objek). Resolusi mengecil
-          (64$\times$64 $\rightarrow$ 32$\times$32 $\rightarrow$
-          16$\times$16 $\rightarrow$ 8$\times$8 $\rightarrow$
-          4$\times$4).
-    \item \textbf{Dasar (bottleneck):} Fitur paling abstrak. Model
-          "memahami" apa yang ada di gambar secara global.
-    \item \textbf{Sisi kanan (decoder):} Upsampling + konvolusi.
-          Mengembalikan resolusi ke ukuran asli. Menggabungkan fitur
-          abstrak dari bottleneck dengan fitur detail dari encoder
-          (via \textbf{skip connections}).
-    \item \textbf{Skip connections:} Ini inovasi utama U-Net.
-          Decoder tidak hanya bekerja dari bottleneck, tapi juga
-          menerima informasi langsung dari encoder di level yang
-          sama. Ini mempertahankan detail spasial (posisi, batas).
-\end{itemize}
+\textbf{Kenapa segmentasi, bukan deteksi objek (bounding box)?}
+Deforestasi tidak punya bentuk yang tetap — bisa persegi (ladang),
+memanjang (jalan), atau irregular. Bounding box tidak cukup presisi.
 
-\subsection{Apa Itu ResNet34?}
-ResNet \cite{he2016deep} adalah encoder yang menggunakan
-\textbf{residual blocks}: alih-alih belajar $F(x)$ langsung, belajar
-$F(x) = H(x) - x$ (residual). Keuntungan:
-\begin{itemize}[nosep]
-    \item Gradient bisa mengalir langsung melalui shortcut connections
-          (mencegah vanishing gradient di jaringan dalam).
-    \item 34 layer dengan 21.3M parameter.
-    \item Tersedia pretrained di ImageNet (14 juta gambar natural).
-\end{itemize}
+% ----------------------------------------------------------------------
+\subsection{Bagaimana Cara Kerja U-Net?}
+% ----------------------------------------------------------------------
 
-\subsection{Apa Itu Siamese Network?}
-Siamese = "kembar". Dua subnet dengan \textbf{weight yang sama persis}
-(shared weights). Input berbeda (pre dan post), encoder identik.
-Keluaran encoder dibandingkan.
+\textbf{Analogi:} Bayangkan seorang pelukis yang ingin meniru sebuah
+lukisan. Pertama, dia mengamati lukisan dari jauh untuk memahami
+komposisi global (encoder). Lalu, dia melukis detailnya dari memori,
+sesekali melihat lukisan asli untuk memastikan detail kecil — posisi
+mata, lipatan kain (skip connections).
 
-\textbf{Kenapa weight sharing?} Karena kita ingin encoder mengekstrak
-fitur yang konsisten. Kalau encoder pre dan post berbeda, model bisa
-"curang": satu encoder belajar deteksi hutan, satu lagi belajar
-deteksi non-hutan. Dengan weight sharing, encoder \textit{harus}
-mengekstrak fitur yang sama dari kedua input — perbedaan hanya muncul
-dari inputnya.
-
-\subsection{Apa Itu IoU (Intersection over Union)?}
-\textbf{Metric paling penting untuk segmentasi.}
-
-$$IoU = \frac{TP}{TP + FP + FN}$$
+\textbf{Struktur U-Net \cite{ronneberger2015unet}:}
 
 \begin{itemize}[nosep]
-    \item \textbf{TP (True Positive):} Pixel yang benar-benar
-          deforestasi dan diprediksi sebagai deforestasi.
-    \item \textbf{FP (False Positive):} Pixel yang bukan deforestasi
-          tapi diprediksi deforestasi (false alarm).
-    \item \textbf{FN (False Negative):} Pixel deforestasi yang tidak
-          terdeteksi (missed detection).
+    \item \textbf{Encoder (sisi kiri):} Jalan turun. Terdiri dari
+          \textbf{convolutional blocks} (Conv2D + BatchNorm + ReLU)
+          diikuti \textbf{max pooling} (2$\times$2, stride 2) yang
+          mengurangi resolusi setengahnya.
+    \begin{itemize}[nosep]
+        \item Input: 64$\times$64$\times$5 (5 channel)
+        \item Level 1: 64$\times$64$\times$64 (64 filter)
+        \item Level 2: 32$\times$32$\times$128
+        \item Level 3: 16$\times$16$\times$256
+        \item Level 4: 8$\times$8$\times$512
+        \item Bottleneck: 4$\times$4$\times$1024
+    \end{itemize}
+    \item \textbf{Bottleneck:} Resolusi paling kecil, jumlah channel
+          paling banyak. Di sinilah model ``memahami'' gambar secara
+          global. Setiap pixel di bottleneck ``melihat'' area
+          140$\times$140 pixel di input (receptive field).
+    \item \textbf{Decoder (sisi kanan):} Jalan naik. \textbf{Transposed
+          convolution} (upsampling 2$\times$) mengembalikan resolusi.
+          Setiap upsampling diikuti concatenation dengan feature map
+          dari encoder level yang sama (skip connection), lalu
+          convolution.
+    \item \textbf{Skip connections:} Ini yang membuat U-Net powerful.
+          Decoder tidak hanya menggunakan informasi dari bottleneck
+          (yang sudah sangat abstrak, resolusinya 4$\times$4), tapi
+          juga menerima feature maps detail dari encoder (yang masih
+          memiliki informasi posisi presisi). Tanpa skip connections,
+          decoder akan menghasilkan output yang kasar dan
+          boundary-nya tidak presisi.
+    \item \textbf{Output:} 64$\times$64$\times$1 (satu channel),
+          setiap pixel berisi probabilitas [0, 1].
 \end{itemize}
 
-IoU = 1 artinya prediksi sempurna. IoU = 0 artinya tidak ada overlap.
-Dalam segmentasi satelit, IoU 0.5 sudah dianggap bagus untuk objek
-kecil.
+\textbf{Mengapa U-Net cocok untuk remote sensing?} Karena:
+\begin{itemize}[nosep]
+    \item Skip connections mempertahankan detail batas (boundary)
+          — penting untuk delineasi deforestasi.
+    \item Bisa bekerja dengan jumlah data terbatas (ribuan,
+          bukan jutaan).
+    \item Bobot encoder bisa ditransfer dari model pretrained
+          (ResNet, EfficientNet).
+\end{itemize}
 
-\subsection{Apa Itu Dice Loss?}
-Dice loss adalah fungsi loss yang digunakan untuk training:
+% ----------------------------------------------------------------------
+\subsection{Bagaimana Cara Kerja ResNet (Residual Network)?}
+% ----------------------------------------------------------------------
+
+\textbf{Masalah:} Semakin dalam jaringan, gradient harus melewati
+semakin banyak layer. Gradient bisa menjadi sangat kecil (vanishing)
+atau sangat besar (exploding). Akibatnya: jaringan 50 layer bisa
+lebih buruk daripada 20 layer.
+
+\textbf{Solusi ResNet \cite{he2016deep}:} Residual learning.
+
+\begin{itemize}[nosep]
+    \item \textbf{Ide:} Alih-alih belajar fungsi $H(x)$ secara
+          langsung, belajar residual $F(x) = H(x) - x$. Output
+          aktual: $H(x) = F(x) + x$.
+    \item \textbf{Residual block:} $x \rightarrow $ [Conv $\rightarrow$
+          BN $\rightarrow$ ReLU $\rightarrow$ Conv $\rightarrow$ BN]
+          $\rightarrow$ $+x$ (shortcut) $\rightarrow$ ReLU.
+    \item \textbf{Shortcut connection:} Menambahkan input $x$
+          langsung ke output convolution. Gradient bisa mengalir
+          melalui shortcut ini tanpa modifikasi — sehingga gradient
+          tidak vanishing meski di jaringan sangat dalam.
+    \item \textbf{ResNet34:} 34 layer, 21.3M parameter. Terdiri dari
+          4 stages dengan jumlah channel [64, 128, 256, 512].
+\end{itemize}
+
+\textbf{Mengapa pretrained ImageNet membantu?} ImageNet berisi 14
+juta gambar natural (kucing, mobil, dll.). Layer pertama ResNet
+belajar mendeteksi \textit{low-level features} universal: tepi,
+sudut, gradien, tekstur. Features ini juga berguna untuk citra
+satelit. Layer tinggi (yang mendeteksi objek spesifik) akan
+diadaptasi selama fine-tuning. Ini mempercepat training dan
+meningkatkan performa dibanding training dari random weights.
+
+% ----------------------------------------------------------------------
+\subsection{Bagaimana Cara Kerja Stacked Multi-Temporal U-Net?}
+% ----------------------------------------------------------------------
+
+\textbf{Stacked} = ditumpuk. Pre-event (5 band) dan post-event
+(5 band) digabungkan secara \textbf{channel-wise concatenation}
+menjadi 10 channel.
+
+\begin{itemize}[nosep]
+    \item Input: 64$\times$64$\times$10.
+    \item Channel 1-5: pre-event (B, G, R, NIR, NDVI).
+    \item Channel 6-10: post-event (B, G, R, NIR, NDVI).
+    \item Arsitektur: sama persis dengan U-Net biasa, hanya input
+          layer pertama disesuaikan dari 3 $\rightarrow$ 10 channel.
+\end{itemize}
+
+\textbf{Mengapa ini disebut ``naive fusion''?} Karena model menerima
+semua informasi tanpa struktur. Model harus belajar sendiri bahwa:
+\begin{enumerate}[nosep]
+    \item Channel 1-5 berkorelasi dengan channel 6-10 (pre/post).
+    \item Perbedaan antara channel 1-5 dan 6-10 itu signifikan.
+\end{enumerate}
+Ini tugas tambahan yang tidak perlu — Siamese memberikan struktur
+ini secara eksplisit.
+
+\textbf{Mengapa adaptasi layer pertama perlu hati-hati?} ResNet34
+pretrained menerima 3 channel (RGB). Input kita 10 channel. Cara
+adaptasi: bobot untuk 3 channel pertama = pretrained RGB. Bobot 7
+channel sisanya diinisialisasi random (atau copy dari RGB). Tanpa
+adaptasi yang benar, pretrained weights menjadi tidak berguna.
+
+% ----------------------------------------------------------------------
+\subsection{Bagaimana Cara Kerja Siamese FC-Siam-diff?}
+% ----------------------------------------------------------------------
+
+\textbf{Siamese} artinya ``kembar'' (berasal dari bahasa Siam/
+Thailand, digunakan untuk menggambarkan kembar siam — dua tubuh
+bergabung).
+
+\textbf{Arsitektur FC-Siam-diff \cite{daudt2018fcsiam}:}
+
+\begin{itemize}[nosep]
+    \item \textbf{Dua encoder identik} (ResNet34) dengan \textbf{shared
+          weights}. Encoder A memproses pre-event, Encoder B memproses
+          post-event. Karena bobotnya sama, keduanya mengekstrak
+          fitur dengan cara yang persis sama.
+    \item \textbf{Feature differencing:} Di setiap level encoder,
+          kita punya $f_{pre}$ dan $f_{post}$. Decoder menerima
+          \textbf{tiga} input:
+          $$[f_{post},\ f_{pre},\ f_{post} - f_{pre}]$$
+    \item \textbf{Kenapa tiga input?}
+    \begin{itemize}[nosep]
+        \item $f_{post}$: Informasi post-event (untuk deteksi
+              deforestasi secara langsung).
+        \item $f_{pre}$: Informasi pre-event (konteks: area ini
+              dulunya hutan atau bukan?).
+        \item $f_{post} - f_{pre}$: \textbf{Perubahan eksplisit}.
+              Nilai positif = fitur baru muncul. Nilai negatif =
+              fitur menghilang. Deforestasi: nilai negatif besar
+              di channel NIR/NDVI.
+    \end{itemize}
+    \item \textbf{Decoder:} Concatenate ketiga input, lalu konvolusi
+          untuk menghasilkan feature map yang lebih kaya. Sama seperti
+          U-Net, ada skip connections dari encoder ke decoder.
+    \item \textbf{Output:} 64$\times$64$\times$1.
+\end{itemize}
+
+\textbf{Mengapa weight sharing penting?} Tanpa weight sharing:
+\begin{itemize}[nosep]
+    \item Encoder A dan B bisa mempelajari representasi berbeda.
+    \item Model bisa ``curang'': satu encoder fokus ke warna merah,
+          satu lagi ke NIR. Perbedaan yang terdeteksi bukan karena
+          perubahan tutupan lahan, tapi karena encoder berbeda.
+    \item Weight sharing memastikan: \textit{jika inputnya sama,
+          output encodernya harus sama}. Ini memberikan konsistensi.
+\end{itemize}
+
+\textbf{Mengapa $f_{post} - f_{pre}$ lebih baik dari concatenation
+saja?}
+\begin{itemize}[nosep]
+    \item Concatenation: decoder menerima 10 channel (5 pre + 5
+          post). Tidak tahu mana pre/post. Harus belajar relasi
+          antar channel — tugas implisit.
+    \item Difference: decoder langsung diberi tahu ``channel ini
+          adalah perubahannya''. Tidak perlu belajar korelasi
+          antar channel — perubahan sudah dihitung.
+    \item Hasil: model lebih cepat konvergen, lebih robust terhadap
+          noise.
+\end{itemize}
+
+\textbf{Visual langkah-langkah:}
+\begin{enumerate}[nosep]
+    \item Pre (5 band) $\rightarrow$ Encoder $\rightarrow$
+          $f_{pre}$ (multi-level).
+    \item Post (5 band) $\rightarrow$ Encoder (weight sama)
+          $\rightarrow$ $f_{post}$ (multi-level).
+    \item Di setiap level: hitung $f_{post} - f_{pre}$.
+    \item Decoder menerima $[f_{post}, f_{pre}, f_{post} - f_{pre}]$.
+    \item Decoder upsample, skip connection dari encoder, konvolusi.
+    \item Output: mask deforestasi 64$\times$64.
+\end{enumerate}
+
+% ----------------------------------------------------------------------
+\subsection{NIR (Near-Infrared): Kenapa Penting?}
+% ----------------------------------------------------------------------
+
+\textbf{NIR adalah kunci deteksi deforestasi.}
+
+Cahaya tampak (RGB) = panjang gelombang 400-700nm.
+Near-Infrared (NIR) = 700-1100nm. Tidak terlihat oleh mata manusia.
+
+\textbf{Mengapa NIR penting untuk vegetasi?}
+\begin{itemize}[nosep]
+    \item Daun sehat memiliki struktur sel mesofil yang memantulkan
+          NIR sangat kuat ($\sim$40-50\% dari energi NIR yang datang).
+    \item Ini disebut \textbf{red-edge effect}: perbedaan drastis
+          antara refleksi Red (5-10\%) dan NIR (40-50\%).
+    \item Ketika pohon ditebang: struktur sel daun hilang.
+          Refleksi NIR turun drastis ke $\sim$10-15\%.
+    \item Tanah telanjang: refleksi NIR rendah.
+    \item Air: refleksi NIR hampir nol.
+\end{itemize}
+
+\textbf{Contoh numerik:}
+\begin{itemize}[nosep]
+    \item Hutan lebat: Red=0.05, NIR=0.45. NDVI = (0.45-0.05)/(0.45+0.05) = 0.80.
+    \item Tanah terbuka: Red=0.15, NIR=0.20. NDVI = (0.20-0.15)/(0.20+0.15) = 0.14.
+    \item Deforestasi: Red naik, NIR turun. NDVI turun drastis.
+\end{itemize}
+
+\textbf{Band 8 Sentinel-2} adalah NIR pada 842nm, resolusi 10m.
+Ini adalah band paling informatif untuk deteksi vegetasi.
+
+% ----------------------------------------------------------------------
+\subsection{Hansen Global Forest Change (GFC): Apa Itu Labelnya?}
+% ----------------------------------------------------------------------
+
+\textbf{Hansen GFC} \cite{hansen2013high} = dataset global pertama
+yang memetakan perubahan tutupan pohon dari tahun 2000-2023 pada
+resolusi 30m. Dipublikasikan oleh \textbf{Matthew Hansen} dan tim
+di University of Maryland.
+
+\textbf{Apa isi datasetnya?}
+\begin{itemize}[nosep]
+    \item \textbf{Treecover2000:} Persentase tutupan pohon per pixel
+          pada tahun 2000 (0-100\%).
+    \item \textbf{Loss:} Tahun kehilangan tutupan pohon (2001-2023).
+          0 = tidak ada kehilangan.
+    \item \textbf{Gain:} Tahun gain tutupan pohon (2001-2012).
+    \item \textbf{Mask:} Mask data (air, tidak ada data).
+\end{itemize}
+
+\textbf{Bagaimana label dibuat?}
+\begin{enumerate}[nosep]
+    \item Ribuan citra Landsat 30m diproses per tahun.
+    \item Algoritma random forest mendeteksi perubahan reflektansi
+          yang konsisten dengan kehilangan tutupan pohon.
+    \item Validasi manual: ribuan plot diverifikasi oleh annotator.
+    \item Dataset diperbarui tahunan (GFW).
+\end{enumerate}
+
+\textbf{Mengapa disebut GFC bukan GFW?}
+\begin{itemize}[nosep]
+    \item \textbf{Hansen GFC} = dataset asli dari publikasi 2013.
+    \item \textbf{GFW (Global Forest Watch)} = platform yang
+          mendistribusikan data ini secara operasional.
+    \item Dalam keseharian, orang sering menyebutnya ``GFW label''
+          atau ``Hansen label''. Keduanya merujuk ke data yang sama.
+\end{itemize}
+
+\textbf{Keterbatasan untuk proyek kami:}
+\begin{itemize}[nosep]
+    \item Resolusi 30m. 1 pixel GFC = 9 pixel Sentinel-2.
+    \item Threshold ``tree cover'' GFC: tutupan pohon $>$ 30\%.
+          Deforestasi ringan (penjarangan) tidak terdeteksi.
+    \item Temporal: tahunan. Deforestasi bulan Maret dan Desember
+          di tahun yang sama tidak bisa dibedakan.
+    \item \textit{Commission error:} Beberapa perubahan non-forest
+          (kebakaran, pertanian rotasi) terdeteksi sebagai loss.
+\end{itemize}
+
+% ----------------------------------------------------------------------
+\subsection{Metric: IoU (\& mIoU)}
+% ----------------------------------------------------------------------
+
+\textbf{IoU = Intersection over Union.}
+
+$$IoU = \frac{|A \cap B|}{|A \cup B|} = \frac{TP}{TP + FP + FN}$$
+
+\textbf{Penjelasan visual:} Bayangkan dua lingkaran:
+\begin{itemize}[nosep]
+    \item Lingkaran A: area deforestasi sebenarnya (ground truth).
+    \item Lingkaran B: area deforestasi yang diprediksi model.
+    \item \textbf{Intersection (irisan):} Area yang benar-benar
+          deforestasi dan diprediksi dengan benar = TP.
+    \item \textbf{Union (gabungan):} Total area yang merupakan
+          deforestasi (TP + FP + FN).
+    \item IoU = irisan / gabungan.
+\end{itemize}
+
+\textbf{Nilai IoU:}
+\begin{itemize}[nosep]
+    \item IoU = 1: Prediksi sempurna (irisan = gabungan).
+    \item IoU = 0: Tidak ada overlap (prediksi dan label tidak
+          bersentuhan).
+    \item IoU $>$ 0.5: Dianggap bagus untuk segmentasi objek kecil.
+    \item IoU $>$ 0.7: Sangat bagus (state-of-the-art untuk objek
+          besar seperti mobil di Cityscapes).
+\end{itemize}
+
+\textbf{Global IoU vs Mean IoU:}
+\begin{itemize}[nosep]
+    \item \textbf{Global IoU:} Hitung TP, FP, FN dari \textit{semua}
+          pixel di semua chips, baru hitung IoU. Tidak terpengaruh
+          oleh chips tanpa deforestasi.
+    \item \textbf{Mean IoU (mIoU):} Hitung IoU per-chip, lalu
+          rata-rata. 74\% chips IoU=0, jadi mIoU sangat rendah
+          ($\sim$0.013).
+    \item Di paper kami: laporkan global IoU.
+\end{itemize}
+
+\textbf{mIoU (mean IoU) untuk multi-class:} Rata-rata IoU dari
+semua kelas. Kalau 2 kelas (background + deforestasi):
+$$mIoU = \frac{IoU_{bg} + IoU_{deforest}}{2}$$
+Tapi untuk tugas kami, IoU background selalu tinggi ($>$0.98),
+jadi mIoU tidak informatif. Kami fokus ke IoU deforestasi.
+
+% ----------------------------------------------------------------------
+\subsection{Metric: F1 Score}
+% ----------------------------------------------------------------------
+
+\textbf{F1 = Harmonic mean of Precision and Recall.}
+
+$$F1 = 2 \times \frac{Precision \times Recall}{Precision + Recall}$$
+
+\textbf{Precision:} Dari semua pixel yang kita prediksi sebagai
+deforestasi, berapa persen yang benar?
+$$Precision = \frac{TP}{TP + FP}$$
+
+\textbf{Recall:} Dari semua pixel deforestasi sebenarnya, berapa
+persen yang berhasil kita deteksi?
+$$Recall = \frac{TP}{TP + FN}$$
+
+\textbf{Kenapa F1, bukan accuracy?}
+\begin{itemize}[nosep]
+    \item Accuracy: $\frac{TP + TN}{TP + TN + FP + FN}$.
+    \item Dengan 99.62\% background, prediksi semua 0 = accuracy
+          99.62\% — tapi model tidak berguna.
+    \item F1 mengabaikan TN. Fokus ke performa pada kelas minoritas
+          (deforestasi).
+\end{itemize}
+
+\textbf{Interpretasi F1:}
+\begin{itemize}[nosep]
+    \item F1 = 1: precision dan recall sempurna.
+    \item F1 = 0: salah satu precision atau recall = 0.
+    \item F1 $\sim$ 0.24 (Siamese): precision 0.196, recall 0.311.
+          Trade-off: model lebih cenderung mendeteksi (recall lebih
+          tinggi) dengan konsekuensi false positive (precision lebih
+          rendah).
+\end{itemize}
+
+% ----------------------------------------------------------------------
+\subsection{Loss Function: Dice Loss}
+% ----------------------------------------------------------------------
+
+\textbf{Rumus:}
 $$DiceLoss = 1 - \frac{2 \times TP + \epsilon}{2 \times TP + FP + FN + \epsilon}$$
+di mana $\epsilon$ = 1.0 (smoothing factor, mencegah division by
+zero).
 
-Ini adalah \textbf{smoothing} dari IoU. Bedanya: TP dihitung 2$\times$
-sehingga lebih toleran terhadap false positives. Smoothing $\epsilon$
-mencegah division by zero.
+\textbf{Kenapa TP dihitung 2$\times$?} Ini membuat loss lebih sensitif
+terhadap false negatives (FN). Setiap pixel deforestasi yang terlewat
+dihitung 2$\times$ di penyebut. Model ``dihukum'' lebih berat kalau
+melewatkan deforestasi.
 
-\textbf{Mengapa efektif untuk imbalance?} Karena hanya menghitung
-berdasarkan TP, FP, FN — \textbf{tidak dipengaruhi oleh TN (True
-Negative)}. Dalam dataset dengan 99.62\% background, TN mendominasi
-total pixel. Cross-entropy loss akan puas dengan prediksi
-all-background karena akurasi 99.62\%. Dice loss tidak peduli dengan
-background yang benar — hanya peduli dengan \textit{overlap} terhadap
-kelas positif.
+\textbf{Perbandingan dengan IoU:}
+\begin{itemize}[nosep]
+    \item IoU: $\frac{TP}{TP + FP + FN}$.
+    \item Dice: $\frac{2 \times TP}{2 \times TP + FP + FN}$.
+    \item Dice $\approx \frac{2 \times IoU}{1 + IoU}$. Transformasi
+          monotonic — optimal di threshold yang sama.
+\end{itemize}
+
+\textbf{Mengapa efektif untuk extreme imbalance?}
+\begin{itemize}[nosep]
+    \item Cross-entropy: menghitung loss untuk \textit{setiap pixel}.
+          99.62\% pixel adalah background. Loss didominasi background.
+          Model optimal = prediksi semua 0.
+    \item Dice loss: hanya pixel yang diprediksi positif yang
+          berkontribusi ke numerator (TP). Denominator juga hanya
+          melibatkan TP, FP, FN. \textbf{TN tidak masuk hitungan.}
+          Model tidak diuntungkan dengan memprediksi background.
+    \item Analogi: ujian dengan 100 soal, 99 soal mudah, 1 soal
+          sulit. Cross-entropy = nilai berdasarkan semua 100 soal.
+          Dice = nilai hanya berdasarkan soal sulit itu.
+\end{itemize}
+
+% ----------------------------------------------------------------------
+\subsection{Loss Function: Tversky Loss}
+% ----------------------------------------------------------------------
+
+\textbf{Rumus:}
+$$TverskyLoss = 1 - \frac{TP + \epsilon}{TP + \alpha \cdot FP + \beta \cdot FN + \epsilon}$$
+di mana $\alpha + \beta = 1$.
+
+\textbf{Perbedaan dengan Dice:}
+\begin{itemize}[nosep]
+    \item Dice: FP dan FN diberi bobot sama.
+    \item Tversky: FP dan FN bisa diberi bobot berbeda.
+    \item $\alpha$ = bobot FP, $\beta$ = bobot FN.
+\end{itemize}
+
+\textbf{Kapan digunakan?}
+\begin{itemize}[nosep]
+    \item $\alpha > \beta$: hukum false positive lebih berat.
+          Precision naik, recall turun.
+    \item $\beta > \alpha$: hukum false negative lebih berat.
+          Recall naik, precision turun.
+\end{itemize}
+
+\textbf{Hasil uji coba kami ($\alpha=0.3, \beta=0.7$):}
+\begin{itemize}[nosep]
+    \item Recall naik dari 0.311 (Dice) ke 0.402 (Tversky).
+    \item Tapi precision turun drastis dari 0.196 ke 0.089.
+    \item F1 turun dari 0.240 ke 0.146.
+    \item \textbf{Kesimpulan:} Untuk tugas ini, menekan FN terlalu
+          keras menghasilkan terlalu banyak false positives.
+          Dice (bobot seimbang) lebih baik.
+\end{itemize}
+
+% ----------------------------------------------------------------------
+\subsection{Loss Function: Focal Loss}
+% ----------------------------------------------------------------------
+
+\textbf{Rumus:}
+$$FocalLoss = -\alpha_t (1 - p_t)^\gamma \log(p_t)$$
+di mana:
+\begin{itemize}[nosep]
+    \item $p_t$: probabilitas prediksi untuk kelas yang benar.
+    \item $\gamma$: focusing parameter (biasanya 2).
+    \item $\alpha_t$: class weighting (biasanya inverse frequency).
+\end{itemize}
+
+\textbf{Bagaimana cara kerjanya?}
+\begin{itemize}[nosep]
+    \item Cross-entropy: $CE = -\log(p_t)$.
+    \item Focal loss menambahkan $(1 - p_t)^\gamma$:
+    \item Jika $p_t$ tinggi (easy sample, model sudah yakin): faktor
+          $(1 - p_t)^\gamma$ kecil $\rightarrow$ loss ditekan.
+    \item Jika $p_t$ rendah (hard sample, model tidak yakin): faktor
+          $(1 - p_t)^\gamma$ besar $\rightarrow$ loss tetap tinggi.
+    \item Efek: model fokus ke sample yang sulit, tidak membuang
+          energi pada sample yang sudah bisa.
+\end{itemize}
+
+\textbf{Kok bisa untuk imbalance?}
+\begin{itemize}[nosep]
+    \item Background (easy samples): $p_t$ tinggi, loss ditekan.
+    \item Deforestasi (hard samples): $p_t$ rendah, loss tetap.
+    \item Tapi untuk extreme imbalance seperti kita (0.38\%),
+          focal loss belum cukup. $\gamma$ perlu sangat tinggi atau
+          $\alpha_t$ perlu dituning dengan hati-hati.
+\end{itemize}
+
+\textbf{Hasil uji coba ($\gamma=2, \alpha=0.996$):}
+Lebih buruk dari Dice. Kemungkinan karena tuning $\gamma$ dan
+$\alpha$ yang sulit. Focal loss populer di detection (COCO) tapi
+kurang efektif untuk segmentation dengan imbalance ekstrem.
+
+% ----------------------------------------------------------------------
+\subsection{Loss Function: Lov\'asz-Softmax}
+% ----------------------------------------------------------------------
+
+\textbf{Rumus:} Berbeda dari loss lain. Lov\'asz-Softmax mengoptimasi
+\textbf{Jaccard index (IoU) secara langsung}. Rumusnya kompleks,
+tapi intuisinya:
+
+\begin{itemize}[nosep]
+    \item Hitung kesalahan per pixel (hinge loss: max(0, 1 - margin)).
+    \item Urutkan kesalahan dari terbesar ke terkecil.
+    \item Hitung Lov\'asz extension: jumlahkan kesalahan dengan
+          pembobotan berdasarkan peringkatnya.
+    \item Ini adalah \textit{surrogate} yang ``konveks'' untuk IoU.
+\end{itemize}
+
+\textbf{Mengapa tidak kami pakai?}
+\begin{itemize}[nosep]
+    \item Performa setara dengan Dice, tapi training 20\% lebih
+          lambat (perlu sorting per batch).
+    \item Implementasi lebih kompleks, risiko bug lebih tinggi.
+    \item Dice sudah cukup baik.
+\end{itemize}
+
+% ----------------------------------------------------------------------
+\subsection{Ringkasan Loss Functions}
+% ----------------------------------------------------------------------
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Loss} & \textbf{Keunggulan} & \textbf{Kelemahan} & \textbf{Hasil} \\
+\midrule
+Dice & Sederhana, imbalance & Tidak smooth & \textbf{Best} \\
+Tversky & Bobot FP/FN bisa diatur & Tuning $\alpha$/$\beta$ & Recall naik, P turun \\
+Focal & Fokus hard samples & Tuning $\gamma$/$\alpha$ sulit & Di bawah Dice \\
+Lov\'asz & Optimasi IoU langsung & Lambat, kompleks & Setara Dice \\
+Cross-Entropy & Standard, sederhana & Gagal total di imbalance & Collapse \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ======================================================================
 \section{Arsitektur: Kenapa Tiga Model?}
